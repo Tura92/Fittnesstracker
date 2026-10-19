@@ -1,10 +1,10 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, lte, ne } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, lte, ne } from "drizzle-orm";
 import { getDb } from "@/db";
 import { entries, exercises, planDays, planItems, sets, workouts } from "@/db/schema";
-import { parseRestSeconds } from "./format";
-import type { AnalysisEntry } from "./analysis";
-import type { EntryDTO, ExerciseOption, PlanDayOption, SetDTO, WorkoutDTO } from "./types";
+import { formatDuration, parseRestSeconds } from "./format";
+import { MUSCLE_TARGETS, type AnalysisEntry } from "./analysis";
+import type { EntryDTO, ExerciseDetail, ExerciseOption, ExercisePlanItem, PlanDayOption, SetDTO, WorkoutDTO } from "./types";
 
 export const DEFAULT_REST_SECONDS = 120;
 
@@ -13,6 +13,7 @@ export async function getExerciseOptions(): Promise<ExerciseOption[]> {
   return db
     .select({ id: exercises.id, name: exercises.name, primaryMuscle: exercises.primaryMuscle })
     .from(exercises)
+    .where(eq(exercises.archived, false))
     .orderBy(asc(exercises.name));
 }
 
@@ -35,6 +36,7 @@ export async function getPlan() {
       reps: planItems.reps,
       rir: planItems.rir,
       rest: planItems.rest,
+      restSeconds: exercises.restSeconds,
       exercise: exercises.name,
       primaryMuscle: exercises.primaryMuscle,
       secondary1: exercises.secondaryMuscle1,
@@ -71,7 +73,8 @@ export async function getPlan() {
         sets: r.sets,
         reps: r.reps,
         rir: r.rir,
-        rest: r.rest,
+        // Eigene Pausenzeit der Übung geht vor, sonst die Angabe aus dem Plan
+        rest: r.restSeconds !== null ? `${formatDuration(r.restSeconds)} min` : r.rest,
         muscles: [r.primaryMuscle, r.secondary1, r.secondary2].filter((m): m is string => !!m),
       });
     }
@@ -268,4 +271,77 @@ export async function getAnalysisEntries(): Promise<AnalysisEntry[]> {
     .orderBy(asc(workouts.date), asc(entries.position));
   const allSets = await setsByEntry(rows.map((r) => r.id));
   return rows.map(({ id, ...r }) => ({ ...r, sets: allSets.get(id) ?? [] }));
+}
+
+async function planItemsByExercise(exerciseIds?: number[]): Promise<Map<number, ExercisePlanItem[]>> {
+  const db = await getDb();
+  const rows = await db
+    .select({
+      exerciseId: planItems.exerciseId,
+      id: planItems.id,
+      dayNumber: planDays.number,
+      dayTitle: planDays.title,
+      sets: planItems.sets,
+      reps: planItems.reps,
+      rir: planItems.rir,
+      rest: planItems.rest,
+    })
+    .from(planItems)
+    .innerJoin(planDays, eq(planDays.id, planItems.planDayId))
+    .where(exerciseIds ? inArray(planItems.exerciseId, exerciseIds) : undefined)
+    .orderBy(asc(planDays.number), asc(planItems.position));
+  const result = new Map<number, ExercisePlanItem[]>();
+  for (const { exerciseId, ...item } of rows) {
+    const list = result.get(exerciseId) ?? [];
+    list.push(item);
+    result.set(exerciseId, list);
+  }
+  return result;
+}
+
+async function entryCounts(exerciseIds?: number[]): Promise<Map<number, number>> {
+  const db = await getDb();
+  const rows = await db
+    .select({ exerciseId: entries.exerciseId, n: count() })
+    .from(entries)
+    .where(exerciseIds ? inArray(entries.exerciseId, exerciseIds) : undefined)
+    .groupBy(entries.exerciseId);
+  return new Map(rows.map((r) => [r.exerciseId, r.n]));
+}
+
+/** Alle Übungen samt Planverwendung, für die Übungsübersicht */
+export async function getExerciseList(): Promise<ExerciseDetail[]> {
+  const db = await getDb();
+  const [rows, items, counts] = await Promise.all([
+    db.select().from(exercises).orderBy(asc(exercises.name)),
+    planItemsByExercise(),
+    entryCounts(),
+  ]);
+  return rows.map((e) => ({ ...e, entryCount: counts.get(e.id) ?? 0, planItems: items.get(e.id) ?? [] }));
+}
+
+export async function getExerciseDetail(id: number): Promise<ExerciseDetail | null> {
+  const db = await getDb();
+  const [e] = await db.select().from(exercises).where(eq(exercises.id, id));
+  if (!e) return null;
+  const [items, counts] = await Promise.all([planItemsByExercise([id]), entryCounts([id])]);
+  return { ...e, entryCount: counts.get(id) ?? 0, planItems: items.get(id) ?? [] };
+}
+
+/** Alle bekannten Muskelgruppen: feste Reihenfolge aus der Auswertung plus eigene */
+export async function getMuscleOptions(): Promise<string[]> {
+  const db = await getDb();
+  const rows = await db
+    .select({
+      primary: exercises.primaryMuscle,
+      secondary1: exercises.secondaryMuscle1,
+      secondary2: exercises.secondaryMuscle2,
+    })
+    .from(exercises);
+  const known = MUSCLE_TARGETS.map((m) => m.muscle);
+  const extra = new Set<string>();
+  for (const r of rows) {
+    for (const m of [r.primary, r.secondary1, r.secondary2]) if (m && !known.includes(m)) extra.add(m);
+  }
+  return [...known, ...[...extra].sort((a, b) => a.localeCompare(b, "de"))];
 }

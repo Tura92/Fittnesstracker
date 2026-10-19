@@ -61,3 +61,12 @@ export function formatDuration(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
+
+/** Eingabe "2:30" oder "150" → 150 Sekunden; leer → null, Unsinn → NaN */
+export function parseDuration(input: string): number | null {
+  const s = input.trim();
+  if (s === "") return null;
+  const m = s.match(/^(\d+):([0-5]\d)$/);
+  if (m) return Number(m[1]) * 60 + Number(m[2]);
+  return /^\d+$/.test(s) ? Number(s) : NaN;
+}

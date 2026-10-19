@@ -1,10 +1,16 @@
+import Link from "next/link";
 import { Suspense } from "react";
 import { getPlan } from "@/lib/queries";
 
 export default function PlanPage() {
   return (
     <>
-      <h1 className="mb-1 text-2xl font-semibold">Trainingsplan</h1>
+      <div className="mb-1 flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold">Trainingsplan</h1>
+        <Link href="/uebungen" className="flex h-10 items-center rounded-xl bg-accent-soft px-3 text-sm font-semibold text-accent">
+          Übungen bearbeiten
+        </Link>
+      </div>
       <p className="mb-4 text-sm text-muted">Übungen sind austauschbar. Sätze, Wiederholungen und RIR bleiben.</p>
       <Suspense fallback={<p className="text-muted">Lädt…</p>}>
         <PlanDays />

@@ -1,0 +1,1 @@
+ALTER TABLE "exercises" ADD COLUMN "archived" boolean DEFAULT false NOT NULL;
