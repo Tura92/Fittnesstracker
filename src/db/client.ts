@@ -36,8 +36,9 @@ export async function openDb(): Promise<Db> {
     const { default: postgres } = await import("postgres");
     const { drizzle } = await import("drizzle-orm/postgres-js");
     // prepare: false, damit der Supabase-Pooler (Transaction-Modus) funktioniert
-    // Auf Vercel läuft jede Funktion für sich, eine Verbindung pro Instanz reicht
-    const client = postgres(url, { prepare: false, max: process.env.VERCEL ? 1 : 10 });
+    // Mehrere Verbindungen: Vercel bedient parallele Anfragen in derselben Instanz,
+    // eine einzelne Verbindung würde hinter einem laufenden Import warten
+    const client = postgres(url, { prepare: false, max: 5 });
     return drizzle(client, { schema }) as unknown as Db;
   }
 

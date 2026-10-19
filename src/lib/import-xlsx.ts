@@ -85,147 +85,191 @@ export async function importWorkbook(db: Db, data: ArrayBuffer, { replace = fals
     throw new ImportError(`Die Datenbank enthält schon ${count} Einheiten.`);
   }
 
-  return db.transaction(async (tx) => {
+  // Erst alles aus der Datei lesen, dann mit wenigen Sammel-Inserts schreiben.
+  // Einzelne Inserts brauchen online je einen Netzwerk-Umweg und halten die
+  // Tabellen so lange gesperrt, dass die App hängt.
+
+  // Übungen: ab Zeile 4, Spalten Übung | Haupt | Neben 1 | Neben 2 | Notiz
+  const exerciseRows = new Map<string, typeof t.exercises.$inferInsert>();
+  const ensureExercise = (name: string, primary = "Sonstiges") => {
+    if (!exerciseRows.has(name)) exerciseRows.set(name, { name, primaryMuscle: primary });
+    return name;
+  };
+  const ex = sheet("Übungen");
+  for (let r = 4; r <= ex.rowCount; r++) {
+    const row = ex.getRow(r);
+    const name = str(row.getCell(1).value);
+    const primary = str(row.getCell(2).value);
+    if (!name || !primary || exerciseRows.has(name)) continue;
+    exerciseRows.set(name, {
+      name,
+      primaryMuscle: primary,
+      secondaryMuscle1: str(row.getCell(3).value),
+      secondaryMuscle2: str(row.getCell(4).value),
+      note: str(row.getCell(5).value),
+    });
+  }
+
+  // Trainingsplan: Abschnitte "Tag N – Titel", dann Kopfzeile, dann Übungen
+  const planDayRows: { number: number; title: string }[] = [];
+  const planItemRows: { day: number; exercise: string; position: number; sets: number; reps: string | null; rir: string | null; rest: string | null }[] = [];
+  const plan = sheet("Trainingsplan");
+  let day: number | null = null;
+  let position = 0;
+  for (let r = 1; r <= plan.rowCount; r++) {
+    const row = plan.getRow(r);
+    const first = str(row.getCell(1).value);
+    if (!first) continue;
+    const heading = first.match(/^Tag\s+(\d+)\s*[–-]\s*(.+)$/);
+    if (heading) {
+      day = Number(heading[1]);
+      planDayRows.push({ number: day, title: heading[2].trim() });
+      position = 0;
+      continue;
+    }
+    if (day === null || first === "Übung") continue;
+    const setsTarget = num(row.getCell(2).value);
+    if (setsTarget === null) continue;
+    planItemRows.push({
+      day,
+      exercise: ensureExercise(first, str(row.getCell(6).value) ?? "Sonstiges"),
+      position: position++,
+      sets: setsTarget,
+      reps: range(row.getCell(3).value),
+      rir: range(row.getCell(4).value),
+      rest: str(row.getCell(5).value),
+    });
+  }
+
+  // Logbuch: ab Zeile 5. A Datum, B Block, C Einheit, D Übung,
+  // E–P sechs Paare (Wdh., kg), Q RIR letzter Satz, R Sätze, V Notiz
+  type ParsedEntry = {
+    exercise: string;
+    position: number;
+    rirLast: number | null;
+    setCount: number | null;
+    note: string | null;
+    sets: { reps: number | null; weight: number | null }[];
+  };
+  const workoutRows = new Map<string, { date: string; block: number; dayNumber: number | null; entries: Map<string, ParsedEntry> }>();
+  const log = sheet("Logbuch");
+  let imported = 0;
+  for (let r = 5; r <= log.rowCount; r++) {
+    const row = log.getRow(r);
+    const date = isoDate(row.getCell(1).value);
+    const exerciseName = str(row.getCell(4).value);
+    if (!date || !exerciseName) continue;
+    const block = trailingNumber(row.getCell(2).value) ?? 1;
+    const dayNumber = trailingNumber(row.getCell(3).value);
+
+    const workoutKey = `${date}|${block}|${dayNumber}`;
+    let workout = workoutRows.get(workoutKey);
+    if (!workout) {
+      workout = { date, block, dayNumber, entries: new Map() };
+      workoutRows.set(workoutKey, workout);
+    }
+
+    const pairs: { reps: number | null; weight: number | null }[] = [];
+    for (let s = 0; s < 6; s++) {
+      const reps = num(row.getCell(5 + s * 2).value);
+      const weight = num(row.getCell(6 + s * 2).value);
+      if (reps !== null || weight !== null) pairs.push({ reps, weight });
+    }
+
+    // Gleiche Übung am gleichen Tag in zweiter Zeile = mehr als sechs Sätze
+    const exercise = ensureExercise(exerciseName);
+    let entry = workout.entries.get(exercise);
+    if (!entry) {
+      entry = {
+        exercise,
+        position: workout.entries.size,
+        rirLast: num(row.getCell(17).value),
+        // Ohne Sätze ist die Spalte "Sätze" eine überschriebene Satzzahl (Block 1)
+        setCount: pairs.length === 0 ? num(row.getCell(18).value) : null,
+        note: str(row.getCell(22).value),
+        sets: [],
+      };
+      workout.entries.set(exercise, entry);
+    }
+    entry.sets.push(...pairs);
+    imported++;
+  }
+
+  // Körpergewicht: ab Zeile 4. Beispielzeile aus der Vorlage überspringen.
+  const weightRows = new Map<string, { date: string; kg: number; note: string | null }>();
+  const bw = sheet("Körpergewicht");
+  for (let r = 4; r <= bw.rowCount; r++) {
+    const row = bw.getRow(r);
+    const date = isoDate(row.getCell(1).value);
+    const kg = num(row.getCell(2).value);
+    const note = str(row.getCell(4).value);
+    if (!date || kg === null || note?.startsWith("Beispielzeile") || weightRows.has(date)) continue;
+    weightRows.set(date, { date, kg, note });
+  }
+
+  const workoutList = [...workoutRows.values()];
+  await db.transaction(async (tx) => {
     await tx.execute(
       sql`truncate sets, entries, workouts, plan_items, plan_days, exercises, body_weights restart identity cascade`,
     );
 
-    // Übungen: ab Zeile 4, Spalten Übung | Haupt | Neben 1 | Neben 2 | Notiz
     const exerciseIds = new Map<string, number>();
-    const ensureExercise = async (name: string, primary = "Sonstiges") => {
-      const known = exerciseIds.get(name);
-      if (known) return known;
-      const [row] = await tx
+    if (exerciseRows.size > 0) {
+      const rows = await tx
         .insert(t.exercises)
-        .values({ name, primaryMuscle: primary })
-        .returning({ id: t.exercises.id });
-      exerciseIds.set(name, row.id);
-      return row.id;
-    };
-
-    const ex = sheet("Übungen");
-    for (let r = 4; r <= ex.rowCount; r++) {
-      const row = ex.getRow(r);
-      const name = str(row.getCell(1).value);
-      const primary = str(row.getCell(2).value);
-      if (!name || !primary) continue;
-      const [inserted] = await tx
-        .insert(t.exercises)
-        .values({
-          name,
-          primaryMuscle: primary,
-          secondaryMuscle1: str(row.getCell(3).value),
-          secondaryMuscle2: str(row.getCell(4).value),
-          note: str(row.getCell(5).value),
-        })
-        .onConflictDoNothing()
-        .returning({ id: t.exercises.id });
-      if (inserted) exerciseIds.set(name, inserted.id);
+        .values([...exerciseRows.values()])
+        .returning({ id: t.exercises.id, name: t.exercises.name });
+      for (const r of rows) exerciseIds.set(r.name, r.id);
     }
 
-    // Trainingsplan: Abschnitte "Tag N – Titel", dann Kopfzeile, dann Übungen
-    const plan = sheet("Trainingsplan");
-    let dayId: number | null = null;
-    let position = 0;
-    for (let r = 1; r <= plan.rowCount; r++) {
-      const row = plan.getRow(r);
-      const first = str(row.getCell(1).value);
-      if (!first) continue;
-      const heading = first.match(/^Tag\s+(\d+)\s*[–-]\s*(.+)$/);
-      if (heading) {
-        const [day] = await tx
-          .insert(t.planDays)
-          .values({ number: Number(heading[1]), title: heading[2].trim() })
-          .returning({ id: t.planDays.id });
-        dayId = day.id;
-        position = 0;
-        continue;
-      }
-      if (dayId === null || first === "Übung") continue;
-      const setsTarget = num(row.getCell(2).value);
-      if (setsTarget === null) continue;
-      await tx.insert(t.planItems).values({
-        planDayId: dayId,
-        exerciseId: await ensureExercise(first, str(row.getCell(6).value) ?? "Sonstiges"),
-        position: position++,
-        sets: setsTarget,
-        reps: range(row.getCell(3).value),
-        rir: range(row.getCell(4).value),
-        rest: str(row.getCell(5).value),
-      });
+    const dayIds = new Map<number, number>();
+    if (planDayRows.length > 0) {
+      const rows = await tx.insert(t.planDays).values(planDayRows).returning({ id: t.planDays.id, number: t.planDays.number });
+      for (const r of rows) dayIds.set(r.number, r.id);
+    }
+    if (planItemRows.length > 0) {
+      await tx.insert(t.planItems).values(
+        planItemRows.map(({ day, exercise, ...rest }) => ({
+          ...rest,
+          planDayId: dayIds.get(day)!,
+          exerciseId: exerciseIds.get(exercise)!,
+        })),
+      );
     }
 
-    // Logbuch: ab Zeile 5. A Datum, B Block, C Einheit, D Übung,
-    // E–P sechs Paare (Wdh., kg), Q RIR letzter Satz, R Sätze, V Notiz
-    const log = sheet("Logbuch");
-    const workoutIds = new Map<string, number>();
-    const entryIds = new Map<string, { id: number; nextSet: number }>();
-    const entryPosition = new Map<number, number>();
-    let imported = 0;
-    for (let r = 5; r <= log.rowCount; r++) {
-      const row = log.getRow(r);
-      const date = isoDate(row.getCell(1).value);
-      const exerciseName = str(row.getCell(4).value);
-      if (!date || !exerciseName) continue;
-      const block = trailingNumber(row.getCell(2).value) ?? 1;
-      const day = trailingNumber(row.getCell(3).value);
+    if (workoutList.length > 0) {
+      // Reihenfolge der zurückgegebenen Zeilen ist nicht garantiert, daher Zuordnung über den Schlüssel
+      const rows = await tx
+        .insert(t.workouts)
+        .values(workoutList.map(({ date, block, dayNumber }) => ({ date, block, dayNumber })))
+        .returning({ id: t.workouts.id, date: t.workouts.date, block: t.workouts.block, dayNumber: t.workouts.dayNumber });
+      const workoutIds = new Map(rows.map((r) => [`${r.date}|${r.block}|${r.dayNumber}`, r.id]));
 
-      const workoutKey = `${date}|${block}|${day}`;
-      let workoutId = workoutIds.get(workoutKey);
-      if (!workoutId) {
-        const [w] = await tx
-          .insert(t.workouts)
-          .values({ date, block, dayNumber: day })
-          .returning({ id: t.workouts.id });
-        workoutId = w.id;
-        workoutIds.set(workoutKey, workoutId);
-        entryPosition.set(workoutId, 0);
-      }
+      const entryValues = workoutList.flatMap((w) =>
+        [...w.entries.values()].map((e) => ({
+          workoutId: workoutIds.get(`${w.date}|${w.block}|${w.dayNumber}`)!,
+          exerciseId: exerciseIds.get(e.exercise)!,
+          position: e.position,
+          rirLast: e.rirLast,
+          setCount: e.setCount,
+          note: e.note,
+        })),
+      );
+      const entrySets = workoutList.flatMap((w) => [...w.entries.values()].map((e) => e.sets));
+      const entryRows = await tx
+        .insert(t.entries)
+        .values(entryValues)
+        .returning({ id: t.entries.id, workoutId: t.entries.workoutId, exerciseId: t.entries.exerciseId });
+      const entryIds = new Map(entryRows.map((r) => [`${r.workoutId}|${r.exerciseId}`, r.id]));
 
-      const pairs: { reps: number | null; weight: number | null }[] = [];
-      for (let s = 0; s < 6; s++) {
-        const reps = num(row.getCell(5 + s * 2).value);
-        const weight = num(row.getCell(6 + s * 2).value);
-        if (reps !== null || weight !== null) pairs.push({ reps, weight });
-      }
-      const rirLast = num(row.getCell(17).value);
-      const note = str(row.getCell(22).value);
-      // Ohne Sätze ist die Spalte "Sätze" eine überschriebene Satzzahl (Block 1)
-      const setCount = pairs.length === 0 ? num(row.getCell(18).value) : null;
-
-      // Gleiche Übung am gleichen Tag in zweiter Zeile = mehr als sechs Sätze
-      const exerciseId = await ensureExercise(exerciseName);
-      const entryKey = `${workoutKey}|${exerciseId}`;
-      let entry = entryIds.get(entryKey);
-      if (!entry) {
-        const pos = entryPosition.get(workoutId)!;
-        entryPosition.set(workoutId, pos + 1);
-        const [e] = await tx
-          .insert(t.entries)
-          .values({ workoutId, exerciseId, position: pos, rirLast, setCount, note })
-          .returning({ id: t.entries.id });
-        entry = { id: e.id, nextSet: 0 };
-        entryIds.set(entryKey, entry);
-      }
-      for (const p of pairs) {
-        await tx.insert(t.sets).values({ entryId: entry.id, position: entry.nextSet++, ...p });
-      }
-      imported++;
+      const setValues = entryValues.flatMap((e, i) =>
+        entrySets[i].map((set, position) => ({ entryId: entryIds.get(`${e.workoutId}|${e.exerciseId}`)!, position, ...set })),
+      );
+      if (setValues.length > 0) await tx.insert(t.sets).values(setValues);
     }
 
-    // Körpergewicht: ab Zeile 4. Beispielzeile aus der Vorlage überspringen.
-    const bw = sheet("Körpergewicht");
-    let weights = 0;
-    for (let r = 4; r <= bw.rowCount; r++) {
-      const row = bw.getRow(r);
-      const date = isoDate(row.getCell(1).value);
-      const kg = num(row.getCell(2).value);
-      const note = str(row.getCell(4).value);
-      if (!date || kg === null || note?.startsWith("Beispielzeile")) continue;
-      await tx.insert(t.bodyWeights).values({ date, kg, note }).onConflictDoNothing();
-      weights++;
-    }
-
-    return { exercises: exerciseIds.size, workouts: workoutIds.size, rows: imported, weights };
+    if (weightRows.size > 0) await tx.insert(t.bodyWeights).values([...weightRows.values()]);
   });
+
+  return { exercises: exerciseRows.size, workouts: workoutList.length, rows: imported, weights: weightRows.size };
 }
