@@ -31,7 +31,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="de" className={`${geistSans.variable} h-full antialiased`}>
       <body className="min-h-full font-sans">
         <RestTimerProvider>
-          <main className="mx-auto w-full max-w-md px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-48">
+          <main className="mx-auto w-full max-w-md px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-28">
             {children}
           </main>
           <Suspense>

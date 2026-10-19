@@ -17,7 +17,12 @@ type Timer = {
 
 type RestTimerContext = {
   timer: Timer | null;
+  /** Restzeit in Sekunden */
+  remaining: number;
   start: (seconds: number, label: string, exerciseId: number | null) => void;
+  adjust: (delta: number) => void;
+  stop: () => void;
+  saveAsPreset: () => void;
   /** Pausenzeit einer Übung, mit in dieser Sitzung gespeicherten Änderungen */
   restFor: (exerciseId: number, fallback: number) => number;
 };
@@ -162,64 +167,109 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
 
   const remaining = !timer ? 0 : now === 0 ? timer.duration : Math.max(0, Math.ceil((timer.endsAt - now) / 1000));
 
+  return <Ctx value={{ timer, remaining, start, adjust, stop, saveAsPreset, restFor }}>{children}</Ctx>;
+}
+
+/**
+ * Pause-Button einer Übung. Läuft ihr Timer, zählt der Button selbst herunter,
+ * leuchtet in der Akzentfarbe und zeigt darunter die Bedienung.
+ */
+export function RestTimerButton({ exerciseId, label, fallback }: { exerciseId: number; label: string; fallback: number }) {
+  const { timer, remaining, start, stop, restFor } = useRestTimer();
+  const seconds = restFor(exerciseId, fallback);
+  const mine = timer?.exerciseId === exerciseId ? timer : null;
+
+  if (mine?.done) {
+    return (
+      <button
+        type="button"
+        onClick={stop}
+        role="timer"
+        aria-live="assertive"
+        className="h-11 shrink-0 animate-pulse rounded-xl bg-accent px-3 text-sm font-semibold text-white dark:text-zinc-950"
+      >
+        Vorbei ✓
+      </button>
+    );
+  }
+  if (mine) {
+    const progress = Math.min(100, (remaining / Math.max(1, mine.duration)) * 100);
+    return (
+      <button
+        type="button"
+        onClick={stop}
+        role="timer"
+        aria-label={`Pause läuft, noch ${formatDuration(remaining)}. Tippen zum Stoppen`}
+        className="relative h-11 shrink-0 overflow-hidden rounded-xl border-2 border-accent bg-accent-soft px-3 text-base font-semibold text-accent tabular-nums"
+        // Füllstand zeigt die verbleibende Pause
+        style={{
+          backgroundImage: `linear-gradient(to right, color-mix(in srgb, var(--accent) 25%, transparent) ${progress}%, transparent ${progress}%)`,
+        }}
+      >
+        ⏱ {formatDuration(remaining)}
+      </button>
+    );
+  }
   return (
-    <Ctx value={{ timer, start, restFor }}>
-      {children}
-      {timer && (
-        <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-20 px-3 pb-2">
-          <div
-            role="timer"
-            aria-live={timer.done ? "assertive" : "off"}
-            className={`mx-auto max-w-md overflow-hidden rounded-2xl border shadow-lg ${
-              timer.done ? "border-accent bg-accent text-white dark:text-zinc-950" : "border-border bg-surface"
-            }`}
-          >
-            {timer.done ? (
-              <button type="button" onClick={stop} className="flex h-16 w-full items-center justify-between px-4">
-                <span className="text-left">
-                  <span className="block text-lg font-semibold">Pause vorbei</span>
-                  <span className="block text-sm opacity-80">{timer.label}</span>
-                </span>
-                <span className="font-semibold">OK</span>
-              </button>
-            ) : (
-              <>
-                <div className="flex items-center gap-2 px-3 py-2">
-                  <div className="min-w-0 flex-1">
-                    <span className="block truncate text-xs text-muted">Pause · {timer.label}</span>
-                    <span className="block text-3xl font-semibold tabular-nums">{formatDuration(remaining)}</span>
-                  </div>
-                  <button type="button" onClick={() => adjust(-15)} className="h-11 w-12 rounded-xl border border-border text-sm">
-                    −15
-                  </button>
-                  <button type="button" onClick={() => adjust(15)} className="h-11 w-12 rounded-xl border border-border text-sm">
-                    +15
-                  </button>
-                  <button type="button" onClick={stop} aria-label="Timer stoppen" className="h-11 w-11 rounded-xl text-muted">
-                    ✕
-                  </button>
-                </div>
-                {timer.exerciseId !== null && timer.duration !== timer.preset && (
-                  <button
-                    type="button"
-                    onClick={saveAsPreset}
-                    className="block w-full border-t border-border px-3 py-2 text-left text-sm text-accent"
-                  >
-                    {formatDuration(timer.duration)} als Pause für {timer.label} merken
-                  </button>
-                )}
-                <div className="h-1 bg-border">
-                  <div
-                    className="h-full bg-accent transition-[width] duration-200"
-                    style={{ width: `${Math.min(100, (remaining / Math.max(1, timer.duration)) * 100)}%` }}
-                  />
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+    <button
+      type="button"
+      onClick={() => start(seconds, label, exerciseId)}
+      aria-label={`Pause ${formatDuration(seconds)} starten`}
+      className="h-11 shrink-0 rounded-xl border border-border px-3 text-sm font-medium tabular-nums"
+    >
+      Pause {formatDuration(seconds)}
+    </button>
+  );
+}
+
+/** Feinjustierung unter den Buttons, solange der Timer dieser Übung läuft. */
+export function RestTimerControls({ exerciseId, label }: { exerciseId: number; label: string }) {
+  const { timer, adjust, stop, saveAsPreset } = useRestTimer();
+  if (!timer || timer.done || timer.exerciseId !== exerciseId) return null;
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="flex gap-2">
+        <button type="button" onClick={() => adjust(-15)} className="h-10 flex-1 rounded-xl border border-border text-sm">
+          −15 s
+        </button>
+        <button type="button" onClick={() => adjust(15)} className="h-10 flex-1 rounded-xl border border-border text-sm">
+          +15 s
+        </button>
+        <button type="button" onClick={stop} className="h-10 flex-1 rounded-xl border border-border text-sm text-muted">
+          Stopp
+        </button>
+      </div>
+      {timer.duration !== timer.preset && (
+        <button type="button" onClick={saveAsPreset} className="text-sm text-accent">
+          {formatDuration(timer.duration)} als Pause für {label} merken
+        </button>
       )}
-    </Ctx>
+    </div>
+  );
+}
+
+/**
+ * Kleine Anzeige im Kopf des Trainings, damit die laufende Pause sichtbar bleibt,
+ * wenn ihre Übung aus dem Bild gescrollt ist. Tippen springt zur Übung.
+ */
+export function HeaderTimer() {
+  const { timer, remaining } = useRestTimer();
+  if (!timer) return null;
+  const jump = () => {
+    if (timer.exerciseId === null) return;
+    document.getElementById(`exercise-${timer.exerciseId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  return (
+    <button
+      type="button"
+      onClick={jump}
+      aria-label={`Pause ${timer.label}: ${timer.done ? "vorbei" : `noch ${formatDuration(remaining)}`}. Zur Übung springen`}
+      className={`h-7 rounded-full px-2.5 text-xs font-semibold tabular-nums ${
+        timer.done ? "animate-pulse bg-accent text-white dark:text-zinc-950" : "bg-accent-soft text-accent"
+      }`}
+    >
+      {timer.done ? "Pause vorbei" : `⏱ ${formatDuration(remaining)}`}
+    </button>
   );
 }
 

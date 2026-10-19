@@ -12,9 +12,9 @@ import {
   updateSet,
   updateWorkout,
 } from "@/app/actions";
-import { formatDate, formatDuration, formatSets, parseNumber, type SetValues } from "@/lib/format";
+import { formatDate, formatSets, parseNumber, type SetValues } from "@/lib/format";
 import type { EntryDTO, ExerciseOption, PlanDayOption, WorkoutDTO } from "@/lib/types";
-import { PushSetup, useRestTimer } from "./rest-timer";
+import { HeaderTimer, PushSetup, RestTimerButton, RestTimerControls } from "./rest-timer";
 import { Stepper } from "./stepper";
 
 const SAVE_DELAY_MS = 500;
@@ -154,9 +154,12 @@ export function WorkoutEditor({
               {formatDate(meta.date, { year: true })} · Block {meta.block} · {totalSets} Sätze
             </p>
           </div>
-          <span className="mt-1 shrink-0 text-xs text-muted" aria-live="polite">
-            {saving > 0 ? "Speichert…" : "Gespeichert"}
-          </span>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <span className="mt-1 text-xs text-muted" aria-live="polite">
+              {saving > 0 ? "Speichert…" : "Gespeichert"}
+            </span>
+            <HeaderTimer />
+          </div>
         </div>
         <button type="button" onClick={() => setEditingMeta((v) => !v)} className="text-sm text-accent">
           {editingMeta ? "Fertig" : "Datum, Tag oder Block ändern"}
@@ -281,8 +284,6 @@ function EntryCard({
 }) {
   const [adding, setAdding] = useState(false);
   const [showNote, setShowNote] = useState(!!entry.note);
-  const restTimer = useRestTimer();
-  const rest = restTimer.restFor(entry.exerciseId, entry.restSeconds);
   const { target, previous } = entry;
 
   const nextSetValues = (): SetValues => {
@@ -309,7 +310,7 @@ function EntryCard({
     : null;
 
   return (
-    <section className="rounded-2xl border border-border bg-surface p-4">
+    <section id={`exercise-${entry.exerciseId}`} className="scroll-mt-28 rounded-2xl border border-border bg-surface p-4">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="font-semibold leading-snug">{entry.exerciseName}</h2>
@@ -382,14 +383,7 @@ function EntryCard({
         >
           + Satz
         </button>
-        <button
-          type="button"
-          onClick={() => restTimer.start(rest, entry.exerciseName, entry.exerciseId)}
-          aria-label={`Pause ${formatDuration(rest)} starten`}
-          className="h-11 shrink-0 rounded-xl border border-border px-3 text-sm font-medium tabular-nums"
-        >
-          Pause {formatDuration(rest)}
-        </button>
+        <RestTimerButton exerciseId={entry.exerciseId} label={entry.exerciseName} fallback={entry.restSeconds} />
         {entry.sets.length === 0 && previous && previous.sets.length > 0 && (
           <button
             type="button"
@@ -401,6 +395,7 @@ function EntryCard({
           </button>
         )}
       </div>
+      <RestTimerControls exerciseId={entry.exerciseId} label={entry.exerciseName} />
 
       {entry.sets.length > 0 && (
         <div className="mt-3 flex items-center gap-3 text-sm">

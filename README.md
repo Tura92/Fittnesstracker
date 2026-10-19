@@ -29,7 +29,7 @@ Ohne `DATABASE_URL` legt die App eine lokale PGlite-Datenbank in `./.data` an un
 
 ## Pausen-Timer
 
-Jede Übung hat einen Pause-Button. Die Dauer kommt aus dem Plan (bei Bereichen wie „2–3 min“ das obere Ende) und lässt sich im Timer mit ±15 s anpassen und als Voreinstellung der Übung merken.
+Jede Übung hat einen Pause-Button. Die Dauer kommt aus dem Plan (bei Bereichen wie „2–3 min“ das obere Ende) und lässt sich während der Pause mit ±15 s anpassen und als Voreinstellung der Übung merken. Der Countdown läuft im Button selbst; scrollt die Übung aus dem Bild, zeigt der Kopf des Trainings die Restzeit, ein Tipp darauf springt zurück.
 
 Solange die App offen ist, piept und vibriert sie beim Ablauf. Damit der Alarm auch bei gesperrtem Display kommt, schickt der Server eine Push-Benachrichtigung. Den Zeitpunkt dafür hält [Upstash QStash](https://upstash.com/docs/qstash) (kostenlose Stufe reicht): Beim Start des Timers wird dort eine verzögerte Nachricht an `/api/rest-timer` eingeplant, die beim Stoppen oder Ändern wieder gelöscht wird.
 
