@@ -1,4 +1,5 @@
 import {
+  boolean,
   date,
   integer,
   pgTable,
@@ -17,6 +18,8 @@ export const exercises = pgTable("exercises", {
   secondaryMuscle1: text("secondary_muscle_1"),
   secondaryMuscle2: text("secondary_muscle_2"),
   note: text("note"),
+  /** Voreingestellte Pause nach einem Satz, in Sekunden. Leer = aus dem Plan ableiten. */
+  restSeconds: integer("rest_seconds"),
 });
 
 /** Ein Trainingstag im Plan, z. B. "Tag 1 – Oberkörper A". */
@@ -89,3 +92,23 @@ export const bodyWeights = pgTable(
   },
   (t) => [uniqueIndex("body_weights_date_idx").on(t.date)],
 );
+
+/** Push-Abos der Geräte, auf denen Benachrichtigungen erlaubt wurden. */
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Laufende bzw. vergangene Pausen-Timer, für den Push bei Ablauf. */
+export const restTimers = pgTable("rest_timers", {
+  id: serial("id").primaryKey(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  label: text("label"),
+  /** Id der verzögerten Nachricht bei QStash, zum Abbrechen */
+  messageId: text("message_id"),
+  cancelled: boolean("cancelled").notNull().default(false),
+  firedAt: timestamp("fired_at", { withTimezone: true }),
+});

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import { Suspense } from "react";
 import { BottomNav } from "@/components/bottom-nav";
+import { RestTimerProvider } from "@/components/rest-timer";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -29,12 +30,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="de" className={`${geistSans.variable} h-full antialiased`}>
       <body className="min-h-full font-sans">
-        <main className="mx-auto w-full max-w-md px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-28">
-          {children}
-        </main>
-        <Suspense>
-          <BottomNav />
-        </Suspense>
+        <RestTimerProvider>
+          <main className="mx-auto w-full max-w-md px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-28">
+            {children}
+          </main>
+          <Suspense>
+            <BottomNav />
+          </Suspense>
+        </RestTimerProvider>
       </body>
     </html>
   );

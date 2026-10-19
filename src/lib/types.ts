@@ -10,6 +10,8 @@ export type EntryDTO = {
   rirLast: number | null;
   setCount: number | null;
   note: string | null;
+  /** Pause nach einem Satz in Sekunden: eigene Einstellung, sonst aus dem Plan */
+  restSeconds: number;
   sets: SetDTO[];
   target: { sets: number | null; reps: string | null; rir: string | null; rest: string | null } | null;
   previous: { date: string; sets: SetValues[]; setCount: number | null } | null;

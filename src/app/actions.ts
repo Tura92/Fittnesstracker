@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { getDb } from "@/db";
 import { entries, exercises, planDays, planItems, sets, workouts } from "@/db/schema";
 import { AUTH_COOKIE, authEnabled, isValidSession, safeEqual, sessionToken } from "@/lib/auth";
+import { DEFAULT_REST_SECONDS } from "@/lib/queries";
 import type { EntryDTO } from "@/lib/types";
 
 async function requireAuth() {
@@ -125,6 +126,7 @@ export async function addEntry(workoutId: number, exerciseId: number): Promise<E
     rirLast: null,
     setCount: null,
     note: null,
+    restSeconds: ex.restSeconds ?? DEFAULT_REST_SECONDS,
     sets: [],
     target: null,
     previous: null,
@@ -180,4 +182,14 @@ export async function deleteSet(setId: number) {
   await requireAuth();
   const db = await getDb();
   await db.delete(sets).where(eq(sets.id, setId));
+}
+
+/** Speichert die Pausenzeit als Voreinstellung für eine Übung. */
+export async function setExerciseRest(exerciseId: number, seconds: number) {
+  await requireAuth();
+  const db = await getDb();
+  await db
+    .update(exercises)
+    .set({ restSeconds: intOrNull(seconds, 5, 3600) })
+    .where(eq(exercises.id, exerciseId));
 }
