@@ -1,6 +1,7 @@
 import {
   boolean,
   date,
+  index,
   integer,
   pgTable,
   real,
@@ -112,3 +113,14 @@ export const restTimers = pgTable("rest_timers", {
   cancelled: boolean("cancelled").notNull().default(false),
   firedAt: timestamp("fired_at", { withTimezone: true }),
 });
+
+/** Fehlgeschlagene Anmeldungen je IP-Adresse, für die Sperre gegen Durchprobieren */
+export const loginFailures = pgTable(
+  "login_failures",
+  {
+    id: serial("id").primaryKey(),
+    ip: text("ip").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("login_failures_ip_at_idx").on(t.ip, t.at)],
+);

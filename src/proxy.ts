@@ -17,5 +17,5 @@ export async function proxy(request: NextRequest) {
 export const config = {
   // Manifest und Icons müssen ohne Login erreichbar sein, sonst klappt "Zum Home-Bildschirm"
   // Der QStash-Rückruf prüft stattdessen die Signatur, der Service Worker muss ohne Login laden
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon|apple-icon|manifest.webmanifest|sw.js|api/rest-timer).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon|apple-icon|manifest.webmanifest|robots.txt|sw.js|api/rest-timer).*)"],
 };

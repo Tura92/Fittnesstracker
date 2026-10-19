@@ -1,11 +1,11 @@
 "use server";
 
-import { asc, eq, max } from "drizzle-orm";
+import { asc, desc, eq, lt, max } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db";
-import { entries, exercises, planDays, planItems, sets, workouts } from "@/db/schema";
+import { entries, exercises, loginFailures, planDays, planItems, sets, workouts } from "@/db/schema";
 import { AUTH_COOKIE, authEnabled, isValidSession, safeEqual, sessionToken } from "@/lib/auth";
 import { ImportError, importWorkbook } from "@/lib/import-xlsx";
 import { DEFAULT_REST_SECONDS } from "@/lib/queries";
@@ -41,10 +41,43 @@ function textOrNull(v: unknown): string | null {
   return s === "" ? null : s.slice(0, 2000);
 }
 
+/** Nach so vielen Fehlversuchen innerhalb des Zeitfensters ist die IP gesperrt */
+const LOGIN_MAX_FAILURES = 5;
+const LOGIN_LOCK_MS = 15 * 60 * 1000;
+
+async function clientIp() {
+  const h = await headers();
+  // Auf Vercel setzt die Plattform x-forwarded-for, der erste Eintrag ist der Client
+  return h.get("x-forwarded-for")?.split(",")[0].trim() || h.get("x-real-ip") || "unbekannt";
+}
+
 export async function login(_prev: string | null, formData: FormData): Promise<string | null> {
   if (!authEnabled()) redirect("/");
+  const db = await getDb();
+  const ip = await clientIp();
+
+  const recent = await db
+    .select({ at: loginFailures.at })
+    .from(loginFailures)
+    .where(eq(loginFailures.ip, ip))
+    .orderBy(desc(loginFailures.at))
+    .limit(LOGIN_MAX_FAILURES);
+  if (recent.length === LOGIN_MAX_FAILURES) {
+    const lockedUntil = recent[LOGIN_MAX_FAILURES - 1].at.getTime() + LOGIN_LOCK_MS;
+    if (lockedUntil > Date.now()) {
+      const minutes = Math.ceil((lockedUntil - Date.now()) / 60000);
+      return `Zu viele Fehlversuche. Bitte in ${minutes === 1 ? "1 Minute" : `${minutes} Minuten`} erneut versuchen.`;
+    }
+  }
+
   const password = String(formData.get("password") ?? "");
-  if (!safeEqual(password, process.env.APP_PASSWORD ?? "")) return "Passwort stimmt nicht.";
+  if (!safeEqual(password, process.env.APP_PASSWORD ?? "")) {
+    await db.insert(loginFailures).values({ ip });
+    await db.delete(loginFailures).where(lt(loginFailures.at, new Date(Date.now() - 24 * 60 * 60 * 1000)));
+    const inWindow = recent.filter((r) => r.at.getTime() > Date.now() - LOGIN_LOCK_MS).length + 1;
+    return inWindow < LOGIN_MAX_FAILURES ? "Passwort stimmt nicht." : "Passwort stimmt nicht. Die Anmeldung ist jetzt für 15 Minuten gesperrt.";
+  }
+  await db.delete(loginFailures).where(eq(loginFailures.ip, ip));
   (await cookies()).set(AUTH_COOKIE, await sessionToken(), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",

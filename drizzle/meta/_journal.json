@@ -15,6 +15,13 @@
       "when": 1792396329689,
       "tag": "0001_pausen_timer",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792435552528,
+      "tag": "0002_login_sperre",
+      "breakpoints": true
     }
   ]
 }
