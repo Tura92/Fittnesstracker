@@ -286,11 +286,12 @@ function EntryCard({
   const [showNote, setShowNote] = useState(!!entry.note);
   const { target, previous } = entry;
 
+  // Satz N übernimmt Satz N vom letzten Mal; gibt es den nicht, den zuletzt erfassten Satz
   const nextSetValues = (): SetValues => {
-    const last = entry.sets.at(-1);
-    if (last) return { reps: last.reps, weight: last.weight };
-    const prev = previous?.sets[0];
-    return prev ? { ...prev } : { reps: null, weight: null };
+    const prev = previous?.sets[entry.sets.length];
+    if (prev) return { reps: prev.reps, weight: prev.weight };
+    const last = entry.sets.at(-1) ?? previous?.sets.at(-1);
+    return last ? { reps: last.reps, weight: last.weight } : { reps: null, weight: null };
   };
 
   const add = async (values: SetValues[]) => {
