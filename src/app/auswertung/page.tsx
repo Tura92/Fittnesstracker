@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { AnalysisView } from "@/components/analysis-view";
 import { analyzeBlocks } from "@/lib/analysis";
-import { getAnalysisEntries } from "@/lib/queries";
+import { getAnalysisEntries, getPlanDayOptions } from "@/lib/queries";
 
 export default function AuswertungPage() {
   return (
@@ -15,7 +15,9 @@ export default function AuswertungPage() {
 }
 
 async function Analysis() {
-  const blocks = analyzeBlocks(await getAnalysisEntries());
+  const [entries, days] = await Promise.all([getAnalysisEntries(), getPlanDayOptions()]);
+  // Ohne Plan: 5 Einheiten pro Woche wie in der Excel-Vorlage
+  const blocks = analyzeBlocks(entries, days.length || 5);
   if (blocks.length === 0) return <p className="text-muted">Noch keine Einheiten zum Auswerten.</p>;
   return <AnalysisView blocks={blocks} />;
 }

@@ -252,6 +252,7 @@ export async function getAnalysisEntries(): Promise<AnalysisEntry[]> {
   const rows = await db
     .select({
       id: entries.id,
+      workoutId: workouts.id,
       block: workouts.block,
       date: workouts.date,
       exerciseId: exercises.id,
