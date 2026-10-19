@@ -32,37 +32,34 @@ export function useRestTimer() {
   return ctx;
 }
 
-// Timer liegt im localStorage, damit er Neuladen und Sperren übersteht
-let cached: { raw: string | null; timer: Timer | null } = { raw: null, timer: null };
+// Der Timer lebt im Speicher. localStorage ist nur die Kopie, damit er Neuladen
+// übersteht; ist es gesperrt (z. B. Cookies blockiert), läuft er trotzdem.
+let current: Timer | null = null;
+let restored = false;
 const listeners = new Set<() => void>();
 
 function readTimer(): Timer | null {
-  let raw: string | null = null;
-  try {
-    raw = localStorage.getItem(STORAGE_KEY);
-  } catch {
-    // privater Modus o. ä.
-  }
-  if (raw !== cached.raw) {
-    let timer: Timer | null = null;
+  if (!restored) {
+    restored = true;
     try {
-      timer = raw ? (JSON.parse(raw) as Timer) : null;
+      const raw = localStorage.getItem(STORAGE_KEY);
+      current = raw ? (JSON.parse(raw) as Timer) : null;
     } catch {
-      timer = null;
+      current = null;
     }
-    cached = { raw, timer };
   }
-  return cached.timer;
+  return current;
 }
 
 function writeTimer(timer: Timer | null) {
+  restored = true;
+  current = timer;
   try {
     if (timer) localStorage.setItem(STORAGE_KEY, JSON.stringify(timer));
     else localStorage.removeItem(STORAGE_KEY);
   } catch {
     // ohne Speicher übersteht der Timer nur kein Neuladen
   }
-  cached = { raw: timer ? JSON.stringify(timer) : null, timer };
   listeners.forEach((l) => l());
 }
 
