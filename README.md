@@ -16,16 +16,17 @@ Ohne `DATABASE_URL` legt die App eine lokale PGlite-Datenbank in `./.data` an un
 
 `npm run import -- <datei> --replace` überschreibt vorhandene Daten.
 
-## Online stellen (Supabase + Vercel)
+## Online stellen (Vercel + Supabase)
 
-1. Bei [Supabase](https://supabase.com) ein Projekt anlegen. Unter *Connect* den Connection String des **Transaction poolers** kopieren.
-2. Lokal mit dieser URL Tabellen anlegen und Excel-Daten importieren:
-   ```bash
-   DATABASE_URL="postgresql://..." npm run db:migrate
-   DATABASE_URL="postgresql://..." npm run import -- Trainings-Logbuch-v6.xlsx
-   ```
-3. Bei [Vercel](https://vercel.com) das GitHub-Repo importieren und die Umgebungsvariablen `DATABASE_URL` und `APP_PASSWORD` setzen (für den Pausen-Alarm zusätzlich die aus dem Abschnitt unten).
-4. Die Vercel-URL auf dem Handy öffnen, anmelden und über *Teilen → Zum Home-Bildschirm* als App ablegen.
+1. Bei [Vercel](https://vercel.com) mit dem GitHub-Konto anmelden, *Add New → Project* wählen und das Repo `Fittnesstracker` importieren. Unter *Environment Variables* `APP_PASSWORD` mit deinem Wunschpasswort anlegen, dann *Deploy*. Der erste Deploy zeigt noch einen Fehler, weil die Datenbank fehlt.
+2. Im Vercel-Projekt unter *Storage* eine Supabase-Datenbank anlegen und mit dem Projekt verbinden. Vercel setzt dabei `POSTGRES_URL` und `POSTGRES_URL_NON_POOLING`; die App liest beide.
+3. Unter *Deployments* den letzten Deploy *Redeploy*en. Der Build legt dabei die Tabellen an (`npm run build` wendet die Migrationen an, sobald eine Datenbank-URL gesetzt ist).
+4. Die Vercel-URL öffnen, anmelden und unter `/import` (Startseite: *Excel-Logbuch importieren*) die Excel-Datei hochladen.
+5. Auf dem Handy über *Teilen → Zum Home-Bildschirm* als App ablegen.
+
+Statt der Vercel-Integration geht auch ein eigenes Supabase-Projekt: dessen Connection String (*Transaction pooler*) als `DATABASE_URL` setzen.
+
+Ohne `APP_PASSWORD` zeigt die App auf Vercel nur einen Hinweis statt deiner Daten.
 
 ## Pausen-Timer
 

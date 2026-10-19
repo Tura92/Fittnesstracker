@@ -1,11 +1,13 @@
 "use server";
 
 import { asc, eq, max } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db";
 import { entries, exercises, planDays, planItems, sets, workouts } from "@/db/schema";
 import { AUTH_COOKIE, authEnabled, isValidSession, safeEqual, sessionToken } from "@/lib/auth";
+import { ImportError, importWorkbook } from "@/lib/import-xlsx";
 import { DEFAULT_REST_SECONDS } from "@/lib/queries";
 import type { EntryDTO } from "@/lib/types";
 
@@ -192,4 +194,25 @@ export async function setExerciseRest(exerciseId: number, seconds: number) {
     .update(exercises)
     .set({ restSeconds: intOrNull(seconds, 5, 3600) })
     .where(eq(exercises.id, exerciseId));
+}
+
+export type ImportState = { ok: boolean; message: string } | null;
+
+/** Excel-Logbuch aus der App heraus importieren, z. B. in die frische Online-Datenbank. */
+export async function importExcel(_prev: ImportState, formData: FormData): Promise<ImportState> {
+  await requireAuth();
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, message: "Bitte eine .xlsx-Datei auswählen." };
+  const replace = formData.get("replace") === "on";
+  try {
+    const r = await importWorkbook(await getDb(), await file.arrayBuffer(), { replace });
+    revalidatePath("/", "layout");
+    return {
+      ok: true,
+      message: `Importiert: ${r.exercises} Übungen, ${r.workouts} Einheiten, ${r.weights} Gewichtseinträge.`,
+    };
+  } catch (err) {
+    if (err instanceof ImportError) return { ok: false, message: err.message };
+    throw err;
+  }
 }
