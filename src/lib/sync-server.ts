@@ -1,13 +1,14 @@
 import "server-only";
-import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { entries, exercises, sets, workouts } from "@/db/schema";
 import { intOrNull, isoDate, numOrNull, textOrNull, uuid } from "./validate";
 
 /**
- * Abgleich vom Handy: Jede geänderte Einheit kommt als Ganzes und ersetzt den Stand
- * auf dem Server (gleiche UUID = gleiche Einheit). Das ist bei einer Person mit einem
- * Handy die einfachste Regel, die nie halbe Einheiten hinterlässt.
+ * Abgleich von Handy und PC: Jede geänderte Einheit kommt als Ganzes und wird mit dem
+ * Stand auf dem Server zusammengeführt (gleiche UUID = gleiche Einheit bzw. gleicher Satz).
+ * Gelöscht wird nur, was das Gerät ausdrücklich als gelöscht meldet. So gehen Sätze, die
+ * ein anderes Gerät inzwischen eingetragen hat, nicht verloren.
  */
 export type SyncPayload = {
   workouts: WorkoutPut[];
@@ -21,6 +22,9 @@ type WorkoutPut = {
   block: number;
   dayNumber: number | null;
   note: string | null;
+  /** Auf dem Gerät entfernte Übungen und Sätze seit dem letzten Abgleich */
+  deletedEntries: string[];
+  deletedSets: string[];
   entries: {
     id: string;
     exerciseId: number;
@@ -52,6 +56,8 @@ export function parseSyncPayload(body: unknown): SyncPayload {
         block: intOrNull(w.block, 1, 999) ?? 1,
         dayNumber: intOrNull(w.dayNumber, 1, 99),
         note: textOrNull(w.note),
+        deletedEntries: list(w.deletedEntries ?? []).map(uuid),
+        deletedSets: list(w.deletedSets ?? []).map(uuid),
         entries: list(w.entries).map((rawEntry) => {
           const e = obj(rawEntry);
           return {
@@ -100,15 +106,16 @@ export async function applySync(payload: SyncPayload) {
         })
         .returning({ id: workouts.id });
 
-      const keep = w.entries.filter((e) => known.has(e.exerciseId));
-      const entryUids = keep.map((e) => e.id);
-      await tx
-        .delete(entries)
-        .where(
-          entryUids.length > 0
-            ? and(eq(entries.workoutId, workoutId), notInArray(entries.uid, entryUids))
-            : eq(entries.workoutId, workoutId),
-        );
+      if (w.deletedEntries.length > 0) {
+        await tx.delete(entries).where(and(eq(entries.workoutId, workoutId), inArray(entries.uid, w.deletedEntries)));
+      }
+      if (w.deletedSets.length > 0) {
+        const own = tx.select({ id: entries.id }).from(entries).where(eq(entries.workoutId, workoutId));
+        await tx.delete(sets).where(and(inArray(sets.uid, w.deletedSets), inArray(sets.entryId, own)));
+      }
+
+      const deletedEntries = new Set(w.deletedEntries);
+      const keep = w.entries.filter((e) => known.has(e.exerciseId) && !deletedEntries.has(e.id));
       if (keep.length === 0) return;
 
       const savedEntries = await tx
@@ -138,7 +145,6 @@ export async function applySync(payload: SyncPayload) {
         })
         .returning({ id: entries.id, uid: entries.uid });
       const entryIdByUid = new Map(savedEntries.map((e) => [e.uid, e.id]));
-      const entryIds = savedEntries.map((e) => e.id);
 
       const setRows = keep.flatMap((e) =>
         e.sets.map((s, position) => ({
@@ -149,14 +155,6 @@ export async function applySync(payload: SyncPayload) {
           weight: s.weight,
         })),
       );
-      const setUids = setRows.map((s) => s.uid);
-      await tx
-        .delete(sets)
-        .where(
-          setUids.length > 0
-            ? and(inArray(sets.entryId, entryIds), notInArray(sets.uid, setUids))
-            : inArray(sets.entryId, entryIds),
-        );
       if (setRows.length > 0) {
         await tx
           .insert(sets)

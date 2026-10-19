@@ -3,12 +3,21 @@
  *
  * Jede Änderung an einer Einheit landet sofort hier und gilt damit als gespeichert.
  * Geänderte Einheiten sind "dirty" und werden bei Empfang als Ganzes an /api/sync
- * geschickt. Dazu kommt ein Abzug von Übungen, Plan und letzten Werten (Snapshot),
+ * geschickt; der Server führt sie mit dem Stand anderer Geräte zusammen. Entfernte
+ * Übungen und Sätze werden dafür ausdrücklich als gelöscht mitgeschickt. Dazu kommt ein Abzug von Übungen, Plan und letzten Werten (Snapshot),
  * damit auch ein neues Training offline starten kann.
  */
 import type { OfflineSnapshot, WorkoutDTO } from "./types";
 
-type WorkoutRecord = { id: string; doc: WorkoutDTO; dirty: boolean; updatedAt: number };
+type WorkoutRecord = {
+  id: string;
+  doc: WorkoutDTO;
+  dirty: boolean;
+  updatedAt: number;
+  /** Seit dem letzten Abgleich entfernte Übungen und Sätze */
+  deletedEntries?: string[];
+  deletedSets?: string[];
+};
 
 export type SyncStatus = {
   /** Einheiten bzw. Änderungen, die noch nicht auf dem Server sind */
@@ -120,6 +129,17 @@ export async function listWorkouts(): Promise<WorkoutRecord[]> {
   return done(os.getAll()) as Promise<WorkoutRecord[]>;
 }
 
+/** Neuesten Stand einer Einheit vom Server holen; null ohne Netz oder bei Fehlern */
+export async function fetchServerWorkout(id: string): Promise<WorkoutDTO | null | "missing"> {
+  try {
+    const res = await fetch(`/api/workout/${encodeURIComponent(id)}`, { cache: "no-store" });
+    if (res.status === 404) return "missing";
+    return res.ok ? ((await res.json()) as WorkoutDTO) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getWorkout(id: string): Promise<WorkoutRecord | undefined> {
   const { os } = await store("workouts");
   return done(os.get(id)) as Promise<WorkoutRecord | undefined>;
@@ -128,7 +148,21 @@ export async function getWorkout(id: string): Promise<WorkoutRecord | undefined>
 /** Speichert eine Änderung lokal und stößt den Abgleich an */
 export async function saveWorkout(doc: WorkoutDTO): Promise<void> {
   const { os, tx } = await store("workouts", "readwrite");
-  os.put({ id: doc.id, doc, dirty: true, updatedAt: Date.now() } satisfies WorkoutRecord);
+  const previous = (await done(os.get(doc.id))) as WorkoutRecord | undefined;
+  // Was gegenüber dem gespeicherten Stand fehlt, wurde auf diesem Gerät gelöscht
+  const entryIds = new Set(doc.entries.map((e) => e.id));
+  const setIds = new Set(doc.entries.flatMap((e) => e.sets.map((x) => x.id)));
+  const oldEntries = previous?.doc.entries ?? [];
+  const deletedEntries = oldEntries.map((e) => e.id).filter((id) => !entryIds.has(id));
+  const deletedSets = oldEntries.flatMap((e) => e.sets.map((x) => x.id)).filter((id) => !setIds.has(id));
+  os.put({
+    id: doc.id,
+    doc,
+    dirty: true,
+    updatedAt: Date.now(),
+    deletedEntries: [...new Set([...(previous?.deletedEntries ?? []), ...deletedEntries])],
+    deletedSets: [...new Set([...(previous?.deletedSets ?? []), ...deletedSets])],
+  } satisfies WorkoutRecord);
   await finished(tx);
   await refreshPending();
   scheduleSync();
@@ -224,7 +258,11 @@ async function doSync() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        workouts: records.map((r) => r.doc),
+        workouts: records.map((r) => ({
+          ...r.doc,
+          deletedEntries: r.deletedEntries ?? [],
+          deletedSets: r.deletedSets ?? [],
+        })),
         deletedWorkouts: deleted,
         exerciseRest: Object.entries(rest).map(([exerciseId, seconds]) => ({ exerciseId: Number(exerciseId), seconds })),
       }),
@@ -236,7 +274,15 @@ async function doSync() {
     const { os, tx } = await store("workouts", "readwrite");
     for (const sent of records) {
       const current = (await done(os.get(sent.id))) as WorkoutRecord | undefined;
-      if (current && current.updatedAt === sent.updatedAt) os.put({ ...current, dirty: false });
+      if (!current) continue;
+      const sentEntries = new Set(sent.deletedEntries);
+      const sentSets = new Set(sent.deletedSets);
+      os.put({
+        ...current,
+        dirty: current.updatedAt !== sent.updatedAt,
+        deletedEntries: (current.deletedEntries ?? []).filter((id) => !sentEntries.has(id)),
+        deletedSets: (current.deletedSets ?? []).filter((id) => !sentSets.has(id)),
+      });
     }
     await finished(tx);
     await kvUpdate<string[]>("deleted", (list = []) => list.filter((id) => !deleted.includes(id)));
@@ -265,6 +311,20 @@ async function pruneOld() {
   await finished(tx);
 }
 
+/**
+ * Einmalig: Bis zur Version mit Zusammenführen hat jedes Gerät seine Einheit beim Abgleich
+ * ganz ersetzt, Handy und PC konnten so auseinanderlaufen. Alle lokalen Kopien einmal
+ * hochladen, damit der Server die Sätze beider Geräte vereint.
+ */
+async function markAllForMerge() {
+  if (await kvGet<boolean>("mergedV1")) return refreshPending();
+  const { os, tx } = await store("workouts", "readwrite");
+  for (const r of (await done(os.getAll())) as WorkoutRecord[]) os.put({ ...r, dirty: true, updatedAt: Date.now() });
+  await finished(tx);
+  await kvUpdate("mergedV1", () => true);
+  await refreshPending();
+}
+
 let started = false;
 
 /** Einmal pro Seite: Abgleich bei Start, bei wiederkehrendem Netz und wenn die App wieder sichtbar wird */
@@ -279,8 +339,7 @@ export function startSync() {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") void syncNow();
   });
-  void refreshPending();
-  void syncNow().then(() => refreshSnapshot());
+  void markAllForMerge().then(() => syncNow()).then(() => refreshSnapshot());
   // Mit Netz die aktuelle App-Version für offline sichern lassen (siehe public/sw.js)
   if (navigator.onLine && "serviceWorker" in navigator) {
     void navigator.serviceWorker.ready.then((reg) => reg.active?.postMessage({ type: "precache" }));
