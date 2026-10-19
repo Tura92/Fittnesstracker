@@ -1,144 +1,93 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  addEntry,
-  addSet,
-  deleteEntry,
-  deleteSet,
-  deleteWorkout,
-  updateEntry,
-  updateSet,
-  updateWorkout,
-} from "@/app/actions";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { formatDate, formatSets, parseNumber, type SetValues } from "@/lib/format";
-import type { EntryDTO, ExerciseOption, PlanDayOption, WorkoutDTO } from "@/lib/types";
+import {
+  deleteWorkout,
+  getServerStatus,
+  getStatus,
+  listWorkouts,
+  saveWorkout,
+  subscribeStatus,
+  syncNow,
+  type SyncStatus,
+} from "@/lib/local-store";
+import type { EntryDTO, ExerciseOption, OfflineSnapshot, WorkoutDTO } from "@/lib/types";
+import { makeEntry, newId } from "@/lib/workout-local";
 import { HeaderTimer, PushSetup, RestTimerButton, RestTimerControls } from "./rest-timer";
 import { Stepper } from "./stepper";
 
-const SAVE_DELAY_MS = 500;
+/** Höchstens so lange wartet "Training abschließen" auf den Abgleich, bevor es weitergeht */
+const FINISH_SYNC_TIMEOUT_MS = 4000;
 
-export function WorkoutEditor({
-  workout,
-  exercises,
-  days,
-}: {
-  workout: WorkoutDTO;
-  exercises: ExerciseOption[];
-  days: PlanDayOption[];
-}) {
+/**
+ * Trainingsseite. Arbeitet nur auf der Kopie im Handy: Jede Änderung ist sofort lokal
+ * gespeichert und wird im Hintergrund abgeglichen, sobald Netz da ist.
+ */
+export function WorkoutEditor({ initial, snapshot }: { initial: WorkoutDTO; snapshot: OfflineSnapshot | null }) {
   const router = useRouter();
-  const [entries, setEntries] = useState(workout.entries);
-  const entriesRef = useRef(entries);
-  useEffect(() => {
-    entriesRef.current = entries;
-  }, [entries]);
-  const [meta, setMeta] = useState({
-    date: workout.date,
-    block: workout.block,
-    dayNumber: workout.dayNumber,
-    note: workout.note ?? "",
-  });
+  const [workout, setWorkout] = useState(initial);
   const [editingMeta, setEditingMeta] = useState(false);
-  const [saving, setSaving] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const sync = useSyncExternalStore(subscribeStatus, getStatus, getServerStatus);
+  const days = snapshot?.planDays ?? [];
 
-  const run = useCallback(async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
-    setSaving((n) => n + 1);
-    try {
-      const result = await fn();
-      setError(null);
-      return result;
-    } catch {
-      setError("Speichern hat nicht geklappt. Prüf die Verbindung und versuch es nochmal.");
-      return undefined;
-    } finally {
-      setSaving((n) => n - 1);
-    }
-  }, []);
-
-  // Satzänderungen gesammelt speichern, damit nicht jeder Tipp eine Anfrage ist
-  const timers = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; save: () => Promise<unknown> }>());
-  const schedule = useCallback(
-    (key: string, save: () => Promise<unknown>) => {
-      const existing = timers.current.get(key);
-      if (existing) clearTimeout(existing.timer);
-      const timer = setTimeout(() => {
-        timers.current.delete(key);
-        run(save);
-      }, SAVE_DELAY_MS);
-      timers.current.set(key, { timer, save });
-    },
-    [run],
-  );
-  const flush = useCallback(async () => {
-    const pending = [...timers.current.values()];
-    timers.current.clear();
-    for (const p of pending) {
-      clearTimeout(p.timer);
-      await run(p.save);
-    }
-  }, [run]);
-
+  // Jede Änderung sofort lokal sichern; der geladene Stand selbst ist schon gesichert
   useEffect(() => {
-    const onHide = () => {
-      if (document.visibilityState === "hidden") flush();
-    };
-    document.addEventListener("visibilitychange", onHide);
-    return () => document.removeEventListener("visibilitychange", onHide);
-  }, [flush]);
+    if (workout !== initial) void saveWorkout(workout);
+  }, [workout, initial]);
 
-  const patchEntry = (entryId: number, fn: (e: EntryDTO) => EntryDTO) =>
+  const { entries } = workout;
+  const setEntries = (fn: (list: EntryDTO[]) => EntryDTO[]) => setWorkout((w) => ({ ...w, entries: fn(w.entries) }));
+  const patchEntry = (entryId: string, fn: (e: EntryDTO) => EntryDTO) =>
     setEntries((list) => list.map((e) => (e.id === entryId ? fn(e) : e)));
 
-  const changeSet = (entryId: number, setId: number, values: SetValues) => {
+  const changeSet = (entryId: string, setId: string, values: SetValues) =>
     patchEntry(entryId, (e) => ({ ...e, sets: e.sets.map((s) => (s.id === setId ? { ...s, ...values } : s)) }));
-    schedule(`set-${setId}`, () => updateSet(setId, values.reps, values.weight));
-  };
 
-  const appendSets = async (entryId: number, values: SetValues[]) => {
-    for (const v of values) {
-      const id = await run(() => addSet(entryId, v.reps, v.weight));
-      if (id === undefined) return;
-      patchEntry(entryId, (e) => ({ ...e, setCount: null, sets: [...e.sets, { id, ...v }] }));
-    }
-  };
+  const appendSets = async (entryId: string, values: SetValues[]) =>
+    patchEntry(entryId, (e) => ({ ...e, setCount: null, sets: [...e.sets, ...values.map((v) => ({ id: newId(), ...v }))] }));
 
-  const removeSet = async (entryId: number, setId: number) => {
-    const t = timers.current.get(`set-${setId}`);
-    if (t) clearTimeout(t.timer);
-    timers.current.delete(`set-${setId}`);
+  const removeSet = (entryId: string, setId: string) =>
     patchEntry(entryId, (e) => ({ ...e, sets: e.sets.filter((s) => s.id !== setId) }));
-    await run(() => deleteSet(setId));
-  };
 
-  const removeEntry = async (entry: EntryDTO) => {
+  const removeEntry = (entry: EntryDTO) => {
     if (entry.sets.length > 0 && !confirm(`${entry.exerciseName} mit allen Sätzen entfernen?`)) return;
     setEntries((list) => list.filter((e) => e.id !== entry.id));
-    await run(() => deleteEntry(entry.id));
   };
 
-  const changeEntryMeta = (entryId: number, patch: { rirLast?: number | null; note?: string }) => {
+  const changeEntryMeta = (entryId: string, patch: { rirLast?: number | null; note?: string }) =>
     patchEntry(entryId, (e) => ({ ...e, ...patch }));
-    schedule(`entry-${entryId}`, () => {
-      const current = entriesRef.current.find((e) => e.id === entryId);
-      return updateEntry(entryId, { rirLast: current?.rirLast ?? null, note: current?.note ?? null });
-    });
+
+  const changeMeta = (patch: Partial<Pick<WorkoutDTO, "date" | "block" | "dayNumber" | "note">>) =>
+    setWorkout((w) => ({
+      ...w,
+      ...patch,
+      dayTitle: patch.dayNumber !== undefined ? (days.find((d) => d.number === patch.dayNumber)?.title ?? null) : w.dayTitle,
+    }));
+
+  const addExercise = async (exerciseId: number) => {
+    if (!snapshot) return;
+    const others = (await listWorkouts()).map((r) => r.doc).filter((w) => w.id !== workout.id);
+    const entry = makeEntry(exerciseId, workout, snapshot, others);
+    if (entry) setEntries((list) => [...list, entry]);
   };
 
-  const changeMeta = (patch: Partial<typeof meta>) => {
-    const next = { ...meta, ...patch };
-    setMeta(next);
-    schedule("workout", () => updateWorkout(workout.id, next));
-  };
-
-  const finish = async () => {
-    await flush();
+  const remove = async () => {
+    if (!confirm("Diese Einheit mit allen Übungen löschen?")) return;
+    await deleteWorkout(workout.id);
     router.push("/logbuch");
   };
 
-  const dayTitle = days.find((d) => d.number === meta.dayNumber)?.title;
+  const finish = async () => {
+    // Mit Netz kurz auf den Abgleich warten, damit das Logbuch die Einheit gleich zeigt
+    if (navigator.onLine) {
+      await Promise.race([syncNow(), new Promise((r) => setTimeout(r, FINISH_SYNC_TIMEOUT_MS))]);
+    }
+    router.push("/logbuch");
+    router.refresh();
+  };
+
   const totalSets = entries.reduce((n, e) => n + (e.sets.length || e.setCount || 0), 0);
 
   return (
@@ -147,24 +96,22 @@ export function WorkoutEditor({
         <div className="flex items-start justify-between gap-2">
           <div>
             <h1 className="text-xl font-semibold leading-tight">
-              {meta.dayNumber ? `Tag ${meta.dayNumber}` : "Einheit"}
-              {dayTitle ? ` – ${dayTitle}` : ""}
+              {workout.dayNumber ? `Tag ${workout.dayNumber}` : "Einheit"}
+              {workout.dayTitle ? ` – ${workout.dayTitle}` : ""}
             </h1>
             <p className="text-sm text-muted">
-              {formatDate(meta.date, { year: true })} · Block {meta.block} · {totalSets} Sätze
+              {formatDate(workout.date, { year: true })} · Block {workout.block} · {totalSets} Sätze
             </p>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
-            <span className="mt-1 text-xs text-muted" aria-live="polite">
-              {saving > 0 ? "Speichert…" : "Gespeichert"}
-            </span>
+            <SyncLabel status={sync} />
             <HeaderTimer />
           </div>
         </div>
         <button type="button" onClick={() => setEditingMeta((v) => !v)} className="text-sm text-accent">
           {editingMeta ? "Fertig" : "Datum, Tag oder Block ändern"}
         </button>
-        {error && <p className="mt-2 rounded-lg bg-danger/10 p-2 text-sm text-danger">{error}</p>}
+        {sync.error && <p className="mt-2 rounded-lg bg-danger/10 p-2 text-sm text-danger">{sync.error}</p>}
       </header>
 
       <PushSetup />
@@ -175,7 +122,7 @@ export function WorkoutEditor({
             <span className="mb-1 block text-sm text-muted">Datum</span>
             <input
               type="date"
-              value={meta.date}
+              value={workout.date}
               onChange={(e) => e.target.value && changeMeta({ date: e.target.value })}
               className="h-11 w-full rounded-xl border border-border bg-transparent px-3"
             />
@@ -184,7 +131,7 @@ export function WorkoutEditor({
             <label className="flex-1">
               <span className="mb-1 block text-sm text-muted">Tag</span>
               <select
-                value={meta.dayNumber ?? ""}
+                value={workout.dayNumber ?? ""}
                 onChange={(e) => changeMeta({ dayNumber: e.target.value ? Number(e.target.value) : null })}
                 className="h-11 w-full rounded-xl border border-border bg-transparent px-2"
               >
@@ -200,7 +147,7 @@ export function WorkoutEditor({
               <span className="mb-1 block text-sm text-muted">Block</span>
               <input
                 inputMode="numeric"
-                value={meta.block}
+                value={workout.block}
                 onChange={(e) => {
                   const n = parseNumber(e.target.value);
                   if (n && Number.isInteger(n) && n > 0) changeMeta({ block: n });
@@ -212,19 +159,13 @@ export function WorkoutEditor({
           <label className="block">
             <span className="mb-1 block text-sm text-muted">Notiz zur Einheit</span>
             <textarea
-              value={meta.note}
+              value={workout.note ?? ""}
               onChange={(e) => changeMeta({ note: e.target.value })}
               rows={2}
               className="w-full rounded-xl border border-border bg-transparent p-3"
             />
           </label>
-          <button
-            type="button"
-            onClick={async () => {
-              if (confirm("Diese Einheit mit allen Übungen löschen?")) await deleteWorkout(workout.id);
-            }}
-            className="text-sm text-danger"
-          >
+          <button type="button" onClick={remove} className="text-sm text-danger">
             Einheit löschen
           </button>
         </section>
@@ -248,13 +189,7 @@ export function WorkoutEditor({
         />
       ))}
 
-      <AddExercise
-        exercises={exercises}
-        onAdd={async (exerciseId) => {
-          const entry = await run(() => addEntry(workout.id, exerciseId));
-          if (entry) setEntries((list) => [...list, entry]);
-        }}
-      />
+      <AddExercise exercises={snapshot?.exercises ?? []} onAdd={addExercise} />
 
       <button
         type="button"
@@ -267,6 +202,23 @@ export function WorkoutEditor({
   );
 }
 
+/** Speicherstand in einfachen Worten; gespeichert ist es immer, die Frage ist nur, ob schon auf dem Server */
+export function SyncLabel({ status }: { status: SyncStatus }) {
+  const text =
+    status.pending === 0
+      ? "✓ Gespeichert"
+      : status.syncing
+        ? "Gleicht ab…"
+        : !status.online
+          ? "Offline gespeichert"
+          : "Gespeichert, Abgleich folgt";
+  return (
+    <span className="mt-1 text-xs text-muted" aria-live="polite">
+      {text}
+    </span>
+  );
+}
+
 function EntryCard({
   entry,
   onChangeSet,
@@ -276,9 +228,9 @@ function EntryCard({
   onChangeMeta,
 }: {
   entry: EntryDTO;
-  onChangeSet: (setId: number, v: SetValues) => void;
+  onChangeSet: (setId: string, v: SetValues) => void;
   onAddSets: (values: SetValues[]) => Promise<void>;
-  onRemoveSet: (setId: number) => void;
+  onRemoveSet: (setId: string) => void;
   onRemove: () => void;
   onChangeMeta: (patch: { rirLast?: number | null; note?: string }) => void;
 }) {

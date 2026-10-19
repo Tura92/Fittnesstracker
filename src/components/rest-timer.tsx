@@ -1,9 +1,9 @@
 "use client";
 
 import { createContext, use, useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { setExerciseRest } from "@/app/actions";
 import { savePushSubscription, startRestTimer, stopRestTimer } from "@/app/timer-actions";
 import { formatDuration } from "@/lib/format";
+import { saveExerciseRest } from "@/lib/local-store";
 
 type Timer = {
   endsAt: number;
@@ -160,7 +160,7 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
     const { exerciseId, duration } = timer;
     setOverrides((o) => ({ ...o, [exerciseId]: duration }));
     writeTimer({ ...timer, preset: duration });
-    setExerciseRest(exerciseId, duration).catch(() => undefined);
+    saveExerciseRest(exerciseId, duration).catch(() => undefined);
   };
 
   const restFor = useCallback((exerciseId: number, fallback: number) => overrides[exerciseId] ?? fallback, [overrides]);

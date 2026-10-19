@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import { Suspense } from "react";
 import { BottomNav } from "@/components/bottom-nav";
+import { SyncStarter } from "@/components/local-workouts";
 import { RestTimerProvider } from "@/components/rest-timer";
 import "./globals.css";
 
@@ -39,6 +40,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <Suspense>
             <BottomNav />
           </Suspense>
+          <SyncStarter />
         </RestTimerProvider>
       </body>
     </html>

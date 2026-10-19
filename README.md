@@ -28,6 +28,10 @@ Statt der Vercel-Integration geht auch ein eigenes Supabase-Projekt: dessen Conn
 
 Ohne `APP_PASSWORD` zeigt die App auf Vercel nur einen Hinweis statt deiner Daten.
 
+## Training ohne Empfang
+
+Das Training läuft auf dem Handy: Eine Einheit entsteht im Browser-Speicher (IndexedDB, `src/lib/local-store.ts`), jede Änderung ist sofort dort gesichert. Bei Empfang schickt die App geänderte Einheiten als Ganzes an `POST /api/sync`; Einheiten, Einträge und Sätze tragen dafür eine im Browser erzeugte UUID (`uid`). Übungen, Plan und letzte Werte kommen als Abzug von `GET /api/offline`. Der Service Worker (`public/sw.js`) hält Startseite, Trainingsseite (`/einheit`), Logbuch, Plan und Auswertung samt Dateien vor. Übungen verwalten und der Excel-Import brauchen weiterhin Netz.
+
 ## Pausen-Timer
 
 Jede Übung hat einen Pause-Button. Die Dauer kommt aus dem Plan (bei Bereichen wie „2–3 min“ das obere Ende) und lässt sich während der Pause mit ±15 s anpassen und als Voreinstellung der Übung merken. Der Countdown läuft im Button selbst; scrollt die Übung aus dem Bild, zeigt der Kopf des Trainings die Restzeit, ein Tipp darauf springt zurück.

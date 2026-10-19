@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
+import { PendingWorkouts } from "@/components/local-workouts";
 import { StartForm } from "@/components/start-form";
 import { formatDate, todayIso } from "@/lib/format";
 import { getLatestWorkout, getPlanDayOptions, getWorkoutOn } from "@/lib/queries";
@@ -37,9 +38,10 @@ async function StartContent() {
           <span className="block text-sm text-accent">Excel-Logbuch importieren</span>
         </Link>
       )}
+      <PendingWorkouts exclude={todays ? [todays.id] : []} />
       {todays && (
         <Link
-          href={`/training/${todays.id}`}
+          href={`/einheit?id=${todays.id}`}
           className="block rounded-2xl bg-accent p-4 text-white dark:text-zinc-950"
         >
           <span className="block text-sm opacity-80">Heute schon begonnen</span>

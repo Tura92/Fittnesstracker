@@ -11,6 +11,10 @@ export async function proxy(request: NextRequest) {
   }
   if (request.nextUrl.pathname === "/login") return NextResponse.next();
   if (await isValidSession(request.cookies.get(AUTH_COOKIE)?.value)) return NextResponse.next();
+  // Die App fragt Daten im Hintergrund ab und braucht dann einen klaren Fehler statt der Login-Seite
+  if (request.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.json({ error: "Nicht angemeldet" }, { status: 401 });
+  }
   return NextResponse.redirect(new URL("/login", request.url));
 }
 

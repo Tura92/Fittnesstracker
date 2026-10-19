@@ -1,10 +1,10 @@
 import "server-only";
-import { and, asc, count, desc, eq, inArray, lte, ne } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, lte, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { entries, exercises, planDays, planItems, sets, workouts } from "@/db/schema";
 import { formatDuration, parseRestSeconds } from "./format";
 import { MUSCLE_TARGETS, type AnalysisEntry } from "./analysis";
-import type { EntryDTO, ExerciseDetail, ExerciseOption, ExercisePlanItem, PlanDayOption, SetDTO, WorkoutDTO } from "./types";
+import type { EntryDTO, ExerciseDetail, ExerciseOption, ExercisePlanItem, OfflineSnapshot, PlanDayOption, SetDTO, WorkoutDTO } from "./types";
 
 export const DEFAULT_REST_SECONDS = 120;
 
@@ -95,7 +95,7 @@ export async function getLatestWorkout() {
 export async function getWorkoutOn(date: string) {
   const db = await getDb();
   const [w] = await db
-    .select({ id: workouts.id, dayNumber: workouts.dayNumber, title: planDays.title })
+    .select({ id: workouts.uid, dayNumber: workouts.dayNumber, title: planDays.title })
     .from(workouts)
     .leftJoin(planDays, eq(planDays.number, workouts.dayNumber))
     .where(eq(workouts.date, date))
@@ -109,7 +109,7 @@ async function setsByEntry(entryIds: number[]): Promise<Map<number, SetDTO[]>> {
   if (entryIds.length === 0) return result;
   const db = await getDb();
   const rows = await db
-    .select({ id: sets.id, entryId: sets.entryId, reps: sets.reps, weight: sets.weight })
+    .select({ id: sets.uid, entryId: sets.entryId, reps: sets.reps, weight: sets.weight })
     .from(sets)
     .where(inArray(sets.entryId, entryIds))
     .orderBy(asc(sets.position), asc(sets.id));
@@ -121,11 +121,13 @@ async function setsByEntry(entryIds: number[]): Promise<Map<number, SetDTO[]>> {
   return result;
 }
 
-export async function getWorkout(id: number): Promise<WorkoutDTO | null> {
+/** Eine Einheit samt Vorgaben aus dem Plan und den Werten vom letzten Mal, über ihre UUID */
+export async function getWorkout(uid: string): Promise<WorkoutDTO | null> {
   const db = await getDb();
   const [w] = await db
     .select({
       id: workouts.id,
+      uid: workouts.uid,
       date: workouts.date,
       block: workouts.block,
       dayNumber: workouts.dayNumber,
@@ -135,12 +137,13 @@ export async function getWorkout(id: number): Promise<WorkoutDTO | null> {
     })
     .from(workouts)
     .leftJoin(planDays, eq(planDays.number, workouts.dayNumber))
-    .where(eq(workouts.id, id));
+    .where(eq(workouts.uid, uid));
   if (!w) return null;
 
   const entryRows = await db
     .select({
       id: entries.id,
+      uid: entries.uid,
       exerciseId: entries.exerciseId,
       exerciseName: exercises.name,
       primaryMuscle: exercises.primaryMuscle,
@@ -151,7 +154,7 @@ export async function getWorkout(id: number): Promise<WorkoutDTO | null> {
     })
     .from(entries)
     .innerJoin(exercises, eq(exercises.id, entries.exerciseId))
-    .where(eq(entries.workoutId, id))
+    .where(eq(entries.workoutId, w.id))
     .orderBy(asc(entries.position), asc(entries.id));
 
   const exerciseIds = entryRows.map((e) => e.exerciseId);
@@ -195,18 +198,19 @@ export async function getWorkout(id: number): Promise<WorkoutDTO | null> {
 
   const ownSets = await setsByEntry(entryRows.map((e) => e.id));
   return {
-    id: w.id,
+    id: w.uid,
     date: w.date,
     block: w.block,
     dayNumber: w.dayNumber,
     dayTitle: w.dayTitle,
     note: w.note,
-    entries: entryRows.map(({ exerciseRest, ...e }) => {
+    entries: entryRows.map(({ exerciseRest, id, uid, ...e }) => {
       const target = targets.get(e.exerciseId) ?? null;
       return {
         ...e,
+        id: uid,
         restSeconds: exerciseRest ?? parseRestSeconds(target?.rest) ?? DEFAULT_REST_SECONDS,
-        sets: ownSets.get(e.id) ?? [],
+        sets: ownSets.get(id) ?? [],
         target,
         previous: previous.get(e.exerciseId) ?? null,
       };
@@ -220,6 +224,7 @@ export async function getLog() {
   const ws = await db
     .select({
       id: workouts.id,
+      uid: workouts.uid,
       date: workouts.date,
       block: workouts.block,
       dayNumber: workouts.dayNumber,
@@ -344,4 +349,79 @@ export async function getMuscleOptions(): Promise<string[]> {
     for (const m of [r.primary, r.secondary1, r.secondary2]) if (m && !known.includes(m)) extra.add(m);
   }
   return [...known, ...[...extra].sort((a, b) => a.localeCompare(b, "de"))];
+}
+
+/** Alles, was das Training ohne Netz braucht: Übungen, Plan und die letzten Ausführungen */
+export async function getOfflineSnapshot(): Promise<OfflineSnapshot> {
+  const db = await getDb();
+  const [exerciseRows, plan, latest, recent] = await Promise.all([
+    db
+      .select({
+        id: exercises.id,
+        name: exercises.name,
+        primaryMuscle: exercises.primaryMuscle,
+        restSeconds: exercises.restSeconds,
+      })
+      .from(exercises)
+      .where(eq(exercises.archived, false))
+      .orderBy(asc(exercises.name)),
+    db
+      .select({
+        number: planDays.number,
+        title: planDays.title,
+        exerciseId: planItems.exerciseId,
+        sets: planItems.sets,
+        reps: planItems.reps,
+        rir: planItems.rir,
+        rest: planItems.rest,
+      })
+      .from(planDays)
+      .leftJoin(planItems, eq(planItems.planDayId, planDays.id))
+      .orderBy(asc(planDays.number), asc(planItems.position)),
+    getLatestWorkout(),
+    // Je Übung die zwei letzten Ausführungen: eine davon kann die gerade laufende Einheit sein
+    db
+      .select({
+        entryId: entries.id,
+        exerciseId: entries.exerciseId,
+        setCount: entries.setCount,
+        workoutId: workouts.uid,
+        date: workouts.date,
+        rank: sql<number>`row_number() over (partition by ${entries.exerciseId} order by ${workouts.date} desc, ${workouts.id} desc)`.as("rank"),
+      })
+      .from(entries)
+      .innerJoin(workouts, eq(workouts.id, entries.workoutId)),
+  ]);
+
+  const planDaysOut: OfflineSnapshot["planDays"] = [];
+  for (const r of plan) {
+    let day = planDaysOut.at(-1);
+    if (!day || day.number !== r.number) {
+      day = { number: r.number, title: r.title, items: [] };
+      planDaysOut.push(day);
+    }
+    if (r.exerciseId !== null) {
+      day.items.push({ exerciseId: r.exerciseId, sets: r.sets, reps: r.reps, rir: r.rir, rest: r.rest });
+    }
+  }
+
+  const recentRows = recent.filter((r) => r.rank <= 2).sort((a, b) => a.rank - b.rank);
+  const recentSets = await setsByEntry(recentRows.map((r) => r.entryId));
+  const last: OfflineSnapshot["last"] = {};
+  for (const r of recentRows) {
+    (last[r.exerciseId] ??= []).push({
+      workoutId: r.workoutId,
+      date: r.date,
+      setCount: r.setCount,
+      sets: (recentSets.get(r.entryId) ?? []).map(({ reps, weight }) => ({ reps, weight })),
+    });
+  }
+
+  return {
+    fetchedAt: new Date().toISOString(),
+    exercises: exerciseRows,
+    planDays: planDaysOut,
+    last,
+    latest: latest && { date: latest.date, block: latest.block, dayNumber: latest.dayNumber },
+  };
 }

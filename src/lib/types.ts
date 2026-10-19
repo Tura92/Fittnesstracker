@@ -1,9 +1,10 @@
 import type { SetValues } from "./format";
 
-export type SetDTO = SetValues & { id: number };
+/** IDs von Einheiten, Übungseinträgen und Sätzen sind UUIDs, damit sie offline entstehen können */
+export type SetDTO = SetValues & { id: string };
 
 export type EntryDTO = {
-  id: number;
+  id: string;
   exerciseId: number;
   exerciseName: string;
   primaryMuscle: string;
@@ -18,7 +19,7 @@ export type EntryDTO = {
 };
 
 export type WorkoutDTO = {
-  id: number;
+  id: string;
   date: string;
   block: number;
   dayNumber: number | null;
@@ -53,4 +54,16 @@ export type ExerciseDetail = {
   /** Anzahl der Logbuch-Einträge; mit Einträgen wird beim Löschen nur archiviert */
   entryCount: number;
   planItems: ExercisePlanItem[];
+};
+
+/** Was das Handy für das Training ohne Netz braucht; wird bei Empfang aktualisiert */
+export type OfflineSnapshot = {
+  fetchedAt: string;
+  exercises: (ExerciseOption & { restSeconds: number | null })[];
+  planDays: (PlanDayOption & {
+    items: { exerciseId: number; sets: number | null; reps: string | null; rir: string | null; rest: string | null }[];
+  })[];
+  /** Letzte Ausführungen je Übung (neueste zuerst), für die Vorbelegung */
+  last: Record<number, { workoutId: string; date: string; sets: SetValues[]; setCount: number | null }[]>;
+  latest: { date: string; block: number; dayNumber: number | null } | null;
 };
