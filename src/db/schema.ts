@@ -9,6 +9,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  uuid,
 } from "drizzle-orm/pg-core";
 
 /** Übungen mit Haupt- (zählt 1,0) und bis zu zwei Nebenmuskelgruppen (je 0,5). */
@@ -51,6 +52,8 @@ export const planItems = pgTable("plan_items", {
 /** Eine Trainingseinheit an einem Datum (Excel: Datum + Block + Einheit). */
 export const workouts = pgTable("workouts", {
   id: serial("id").primaryKey(),
+  /** Im Browser erzeugte ID, damit Einheiten auch offline angelegt und später abgeglichen werden können */
+  uid: uuid("uid").notNull().defaultRandom().unique(),
   date: date("date", { mode: "string" }).notNull(),
   block: integer("block").notNull(),
   dayNumber: integer("day_number"),
@@ -61,6 +64,8 @@ export const workouts = pgTable("workouts", {
 /** Eine Übung innerhalb einer Einheit (Excel: eine Zeile im Logbuch). */
 export const entries = pgTable("entries", {
   id: serial("id").primaryKey(),
+  /** Im Browser erzeugte ID, damit Einheiten auch offline angelegt und später abgeglichen werden können */
+  uid: uuid("uid").notNull().defaultRandom().unique(),
   workoutId: integer("workout_id")
     .notNull()
     .references(() => workouts.id, { onDelete: "cascade" }),
@@ -77,6 +82,8 @@ export const entries = pgTable("entries", {
 /** Ein einzelner Satz. Gewicht leer = Körpergewicht bzw. unbekannt. */
 export const sets = pgTable("sets", {
   id: serial("id").primaryKey(),
+  /** Im Browser erzeugte ID, damit Einheiten auch offline angelegt und später abgeglichen werden können */
+  uid: uuid("uid").notNull().defaultRandom().unique(),
   entryId: integer("entry_id")
     .notNull()
     .references(() => entries.id, { onDelete: "cascade" }),

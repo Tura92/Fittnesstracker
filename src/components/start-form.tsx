@@ -1,9 +1,10 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { useFormStatus } from "react-dom";
-import { startWorkout } from "@/app/actions";
+import { getSnapshot, listWorkouts, refreshSnapshot, saveWorkout } from "@/lib/local-store";
 import type { PlanDayOption } from "@/lib/types";
+import { createWorkout } from "@/lib/workout-local";
 
 export function StartForm({
   days,
@@ -16,11 +17,37 @@ export function StartForm({
   block: number;
   today: string;
 }) {
+  const router = useRouter();
   const [day, setDay] = useState(suggestedDay);
   const [block, setBlock] = useState(initialBlock);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Die Einheit entsteht im Handy, damit der Start auch ohne Empfang klappt
+  const start = async (form: HTMLFormElement) => {
+    setPending(true);
+    setError(null);
+    const snapshot = (await getSnapshot()) ?? (await refreshSnapshot());
+    if (!snapshot) {
+      setError("Der Plan ist noch nicht auf dem Handy. Öffne die App einmal mit Empfang.");
+      setPending(false);
+      return;
+    }
+    const date = String(new FormData(form).get("date") || today);
+    const local = (await listWorkouts()).map((r) => r.doc);
+    const workout = createWorkout({ date, block, dayNumber: day }, snapshot, local);
+    await saveWorkout(workout);
+    router.push(`/einheit?id=${workout.id}`);
+  };
 
   return (
-    <form action={startWorkout} className="space-y-4 rounded-2xl border border-border bg-surface p-4">
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        void start(e.currentTarget);
+      }}
+      className="space-y-4 rounded-2xl border border-border bg-surface p-4"
+    >
       <fieldset>
         <legend className="mb-2 text-sm font-medium text-muted">Welcher Tag?</legend>
         <div className="space-y-2">
@@ -68,7 +95,6 @@ export function StartForm({
             >
               −
             </button>
-            <input type="hidden" name="block" value={block} />
             <span className="w-8 text-center font-semibold tabular-nums">{block}</span>
             <button
               type="button"
@@ -82,20 +108,14 @@ export function StartForm({
         </div>
       </div>
 
-      <SubmitButton />
+      {error && <p className="rounded-lg bg-danger/10 p-2 text-sm text-danger">{error}</p>}
+      <button
+        type="submit"
+        disabled={pending}
+        className="h-14 w-full rounded-xl bg-accent text-lg font-semibold text-white disabled:opacity-60 dark:text-zinc-950"
+      >
+        {pending ? "Wird angelegt…" : "Training starten"}
+      </button>
     </form>
-  );
-}
-
-function SubmitButton() {
-  const { pending } = useFormStatus();
-  return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="h-14 w-full rounded-xl bg-accent text-lg font-semibold text-white disabled:opacity-60 dark:text-zinc-950"
-    >
-      {pending ? "Wird angelegt…" : "Training starten"}
-    </button>
   );
 }

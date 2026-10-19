@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { PendingWorkouts } from "@/components/local-workouts";
 import { formatDate, formatSets } from "@/lib/format";
 import { getLog } from "@/lib/queries";
 
@@ -7,6 +8,9 @@ export default function LogbuchPage() {
   return (
     <>
       <h1 className="mb-4 text-2xl font-semibold">Logbuch</h1>
+      <div className="mb-3">
+        <PendingWorkouts />
+      </div>
       <Suspense fallback={<p className="text-muted">Lädt…</p>}>
         <LogList />
       </Suspense>
@@ -27,7 +31,7 @@ async function LogList() {
         return (
           <div key={w.id} className="space-y-3">
             {blockHeader && <h2 className="pt-2 text-sm font-semibold uppercase tracking-wide text-muted">Block {w.block}</h2>}
-            <Link href={`/training/${w.id}`} className="block rounded-2xl border border-border bg-surface p-4">
+            <Link href={`/einheit?id=${w.uid}`} className="block rounded-2xl border border-border bg-surface p-4">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="font-semibold">
                   {w.dayNumber ? `Tag ${w.dayNumber}` : "Einheit"}
