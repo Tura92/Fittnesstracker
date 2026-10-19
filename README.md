@@ -1,6 +1,6 @@
 # Fittnesstracker
 
-Mobile Web-App als Ersatz für das Excel-Trainingslogbuch: Training eintragen, Logbuch und Trainingsplan ansehen. Auswertung und KI-Chat folgen.
+Mobile Web-App als Ersatz für das Excel-Trainingslogbuch: Training eintragen, Logbuch und Trainingsplan ansehen, Auswertung nach Blöcken. KI-Chat folgt.
 
 **Stack:** Next.js 16 (App Router, Server Actions), Tailwind CSS 4, Drizzle ORM, Postgres (Supabase) bzw. lokal PGlite.
 

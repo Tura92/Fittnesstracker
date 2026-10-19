@@ -3,6 +3,7 @@ import { and, asc, desc, eq, inArray, lte, ne } from "drizzle-orm";
 import { getDb } from "@/db";
 import { entries, exercises, planDays, planItems, sets, workouts } from "@/db/schema";
 import { parseRestSeconds } from "./format";
+import type { AnalysisEntry } from "./analysis";
 import type { EntryDTO, ExerciseOption, PlanDayOption, SetDTO, WorkoutDTO } from "./types";
 
 export const DEFAULT_REST_SECONDS = 120;
@@ -243,4 +244,27 @@ export async function getLog() {
       .filter((e) => e.workoutId === w.id)
       .map((e) => ({ ...e, sets: allSets.get(e.id) ?? [] })),
   }));
+}
+
+/** Alle Einträge mit Muskelgruppen und Sätzen, als Grundlage der Auswertung */
+export async function getAnalysisEntries(): Promise<AnalysisEntry[]> {
+  const db = await getDb();
+  const rows = await db
+    .select({
+      id: entries.id,
+      block: workouts.block,
+      date: workouts.date,
+      exerciseId: exercises.id,
+      exerciseName: exercises.name,
+      primaryMuscle: exercises.primaryMuscle,
+      secondaryMuscle1: exercises.secondaryMuscle1,
+      secondaryMuscle2: exercises.secondaryMuscle2,
+      setCount: entries.setCount,
+    })
+    .from(entries)
+    .innerJoin(workouts, eq(workouts.id, entries.workoutId))
+    .innerJoin(exercises, eq(exercises.id, entries.exerciseId))
+    .orderBy(asc(workouts.date), asc(entries.position));
+  const allSets = await setsByEntry(rows.map((r) => r.id));
+  return rows.map(({ id, ...r }) => ({ ...r, sets: allSets.get(id) ?? [] }));
 }
