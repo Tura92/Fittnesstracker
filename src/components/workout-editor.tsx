@@ -12,8 +12,9 @@ import {
   updateSet,
   updateWorkout,
 } from "@/app/actions";
-import { formatDate, formatSets, parseNumber, type SetValues } from "@/lib/format";
+import { formatDate, formatDuration, formatSets, parseNumber, type SetValues } from "@/lib/format";
 import type { EntryDTO, ExerciseOption, PlanDayOption, WorkoutDTO } from "@/lib/types";
+import { PushSetup, useRestTimer } from "./rest-timer";
 import { Stepper } from "./stepper";
 
 const SAVE_DELAY_MS = 500;
@@ -163,6 +164,8 @@ export function WorkoutEditor({
         {error && <p className="mt-2 rounded-lg bg-danger/10 p-2 text-sm text-danger">{error}</p>}
       </header>
 
+      <PushSetup />
+
       {editingMeta && (
         <section className="space-y-3 rounded-2xl border border-border bg-surface p-4">
           <label className="block">
@@ -278,6 +281,8 @@ function EntryCard({
 }) {
   const [adding, setAdding] = useState(false);
   const [showNote, setShowNote] = useState(!!entry.note);
+  const restTimer = useRestTimer();
+  const rest = restTimer.restFor(entry.exerciseId, entry.restSeconds);
   const { target, previous } = entry;
 
   const nextSetValues = (): SetValues => {
@@ -376,6 +381,14 @@ function EntryCard({
           className="h-11 flex-1 rounded-xl bg-accent-soft font-semibold text-accent disabled:opacity-60"
         >
           + Satz
+        </button>
+        <button
+          type="button"
+          onClick={() => restTimer.start(rest, entry.exerciseName, entry.exerciseId)}
+          aria-label={`Pause ${formatDuration(rest)} starten`}
+          className="h-11 shrink-0 rounded-xl border border-border px-3 text-sm font-medium tabular-nums"
+        >
+          Pause {formatDuration(rest)}
         </button>
         {entry.sets.length === 0 && previous && previous.sets.length > 0 && (
           <button

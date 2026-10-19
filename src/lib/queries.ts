@@ -2,7 +2,10 @@ import "server-only";
 import { and, asc, desc, eq, inArray, lte, ne } from "drizzle-orm";
 import { getDb } from "@/db";
 import { entries, exercises, planDays, planItems, sets, workouts } from "@/db/schema";
+import { parseRestSeconds } from "./format";
 import type { EntryDTO, ExerciseOption, PlanDayOption, SetDTO, WorkoutDTO } from "./types";
+
+export const DEFAULT_REST_SECONDS = 120;
 
 export async function getExerciseOptions(): Promise<ExerciseOption[]> {
   const db = await getDb();
@@ -137,6 +140,7 @@ export async function getWorkout(id: number): Promise<WorkoutDTO | null> {
       exerciseId: entries.exerciseId,
       exerciseName: exercises.name,
       primaryMuscle: exercises.primaryMuscle,
+      exerciseRest: exercises.restSeconds,
       rirLast: entries.rirLast,
       setCount: entries.setCount,
       note: entries.note,
@@ -193,12 +197,16 @@ export async function getWorkout(id: number): Promise<WorkoutDTO | null> {
     dayNumber: w.dayNumber,
     dayTitle: w.dayTitle,
     note: w.note,
-    entries: entryRows.map((e) => ({
-      ...e,
-      sets: ownSets.get(e.id) ?? [],
-      target: targets.get(e.exerciseId) ?? null,
-      previous: previous.get(e.exerciseId) ?? null,
-    })),
+    entries: entryRows.map(({ exerciseRest, ...e }) => {
+      const target = targets.get(e.exerciseId) ?? null;
+      return {
+        ...e,
+        restSeconds: exerciseRest ?? parseRestSeconds(target?.rest) ?? DEFAULT_REST_SECONDS,
+        sets: ownSets.get(e.id) ?? [],
+        target,
+        previous: previous.get(e.exerciseId) ?? null,
+      };
+    }),
   };
 }
 

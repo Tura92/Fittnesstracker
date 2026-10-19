@@ -43,3 +43,21 @@ export function parseNumber(input: string): number | null {
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
+
+/**
+ * Pausenangabe aus dem Plan in Sekunden, bei Bereichen das obere Ende:
+ * "2–3 min" → 180, "90 s" → 90, "60–90 s" → 90
+ */
+export function parseRestSeconds(text: string | null | undefined): number | null {
+  if (!text) return null;
+  const numbers = text.replace(",", ".").match(/\d+(\.\d+)?/g);
+  if (!numbers) return null;
+  const value = Number(numbers.at(-1));
+  return Math.round(/min/i.test(text) ? value * 60 : value);
+}
+
+/** 150 → "2:30" */
+export function formatDuration(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
