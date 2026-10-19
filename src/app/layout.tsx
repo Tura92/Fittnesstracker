@@ -13,6 +13,8 @@ const geistSans = Geist({
 export const metadata: Metadata = {
   title: "Fittnesstracker",
   description: "Training eintragen, Plan ansehen, Fortschritt auswerten",
+  // Private App: nicht in Suchmaschinen aufnehmen
+  robots: { index: false, follow: false },
   appleWebApp: { capable: true, title: "Training", statusBarStyle: "default" },
 };
 
