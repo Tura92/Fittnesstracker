@@ -356,7 +356,7 @@ function EntryCard({
                 <Stepper
                   label={`Gewicht Satz ${i + 1}`}
                   value={s.weight}
-                  step={2.5}
+                  step={1}
                   decimal
                   onChange={(weight) => onChangeSet(s.id, { reps: s.reps, weight })}
                 />
