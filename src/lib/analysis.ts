@@ -6,6 +6,7 @@
  */
 
 export type AnalysisEntry = {
+  workoutId: number;
   block: number;
   date: string;
   exerciseId: number;
@@ -44,6 +45,8 @@ export type MuscleStats = {
 
 export type BlockAnalysis = {
   block: number;
+  /** Anzahl der Einheiten im Block */
+  sessions: number;
   weeks: number;
   from: string;
   to: string;
@@ -69,17 +72,13 @@ export const MUSCLE_TARGETS: { muscle: string; target: { min: number; max: numbe
   { muscle: "Sonstiges", target: null },
 ];
 
-function daysBetween(from: string, to: string) {
-  return (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000;
-}
-
 /**
- * Wochen im Block: Tage vom ersten bis letzten Training in Wochen, gerundet,
- * mindestens 1. Excel rundet auf; dann zählt eine Rotation von Donnerstag bis
- * Donnerstag (8 Tage) als 2 Wochen und halbiert die Sätze pro Woche.
+ * Wochen im Block über die Einheiten statt über Kalendertage: Eine Rotation
+ * durch alle Plantage ist eine Woche, egal wie viele Tage sie gedauert hat.
+ * Gerundet, mindestens 1.
  */
-export function weeksInBlock(from: string, to: string) {
-  return Math.max(1, Math.round((daysBetween(from, to) + 1) / 7));
+export function weeksInBlock(sessions: number, sessionsPerWeek: number) {
+  return Math.max(1, Math.round(sessions / Math.max(1, sessionsPerWeek)));
 }
 
 function setsOf(e: AnalysisEntry) {
@@ -93,7 +92,8 @@ function statusOf(perWeek: number, target: { min: number; max: number } | null):
   return "im";
 }
 
-export function analyzeBlocks(entries: AnalysisEntry[]): BlockAnalysis[] {
+/** `sessionsPerWeek`: Einheiten pro Woche, also die Zahl der Plantage */
+export function analyzeBlocks(entries: AnalysisEntry[], sessionsPerWeek: number): BlockAnalysis[] {
   const byBlock = new Map<number, AnalysisEntry[]>();
   for (const e of entries) {
     const list = byBlock.get(e.block) ?? [];
@@ -110,7 +110,8 @@ export function analyzeBlocks(entries: AnalysisEntry[]): BlockAnalysis[] {
     const dates = list.map((e) => e.date).sort();
     const from = dates[0];
     const to = dates[dates.length - 1];
-    const weeks = weeksInBlock(from, to);
+    const sessions = new Set(list.map((e) => e.workoutId)).size;
+    const weeks = weeksInBlock(sessions, sessionsPerWeek);
 
     // Je Übung
     const perExercise = new Map<number, ExerciseStats>();
@@ -178,6 +179,7 @@ export function analyzeBlocks(entries: AnalysisEntry[]): BlockAnalysis[] {
 
     result.push({
       block,
+      sessions,
       weeks,
       from,
       to,

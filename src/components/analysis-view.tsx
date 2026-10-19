@@ -30,7 +30,8 @@ export function AnalysisView({ blocks }: { blocks: BlockAnalysis[] }) {
         ))}
       </div>
       <p className="text-sm text-muted">
-        {formatDate(block.from)} bis {formatDate(block.to)} · {block.weeks === 1 ? "1 Woche" : `${block.weeks} Wochen`}
+        {formatDate(block.from)} bis {formatDate(block.to)} · {block.sessions === 1 ? "1 Einheit" : `${block.sessions} Einheiten`} ={" "}
+        {block.weeks === 1 ? "1 Woche" : `${block.weeks} Wochen`}
       </p>
 
       <MuscleSection block={block} />
