@@ -9,6 +9,8 @@
   --accent: #059669;
   --accent-soft: #d1fae5;
   --danger: #dc2626;
+  --warning: #b45309;
+  --band: #e4e4e7;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -21,6 +23,8 @@
     --accent: #34d399;
     --accent-soft: #064e3b;
     --danger: #f87171;
+    --warning: #fbbf24;
+    --band: #3f3f46;
   }
 }
 
@@ -33,6 +37,8 @@
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
   --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-band: var(--band);
   --font-sans: var(--font-geist-sans);
 }
 
