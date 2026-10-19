@@ -8,16 +8,37 @@ export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 const migrationsFolder = path.join(process.cwd(), "drizzle");
 
 /**
+ * Verbindungs-URL aus DATABASE_URL oder, wenn Supabase über die Vercel-Integration
+ * verbunden ist, aus POSTGRES_URL. `direct` bevorzugt die Verbindung ohne Pooler (für Migrationen).
+ */
+export function databaseUrl({ direct = false } = {}): string | null {
+  const env = process.env;
+  const raw = (direct ? env.POSTGRES_URL_NON_POOLING : undefined) ?? env.DATABASE_URL ?? env.POSTGRES_URL;
+  if (!raw) return null;
+  // Die Vercel-Integration hängt Parameter an (supa, pgbouncer), die Postgres als
+  // unbekannte Einstellung ablehnen würde
+  const url = new URL(raw);
+  url.searchParams.delete("supa");
+  url.searchParams.delete("pgbouncer");
+  return url.toString();
+}
+
+/**
  * Mit DATABASE_URL (z. B. Supabase) wird Postgres genutzt. Ohne läuft eine
  * lokale PGlite-Datenbank in ./.data, die sich beim Start selbst migriert.
  */
 export async function openDb(): Promise<Db> {
-  const url = process.env.DATABASE_URL;
+  const url = databaseUrl();
+  if (!url && process.env.VERCEL) {
+    throw new Error("Keine Datenbank verbunden: In Vercel unter Storage Supabase verbinden oder DATABASE_URL setzen.");
+  }
   if (url) {
     const { default: postgres } = await import("postgres");
     const { drizzle } = await import("drizzle-orm/postgres-js");
     // prepare: false, damit der Supabase-Pooler (Transaction-Modus) funktioniert
-    return drizzle(postgres(url, { prepare: false }), { schema }) as unknown as Db;
+    // Auf Vercel läuft jede Funktion für sich, eine Verbindung pro Instanz reicht
+    const client = postgres(url, { prepare: false, max: process.env.VERCEL ? 1 : 10 });
+    return drizzle(client, { schema }) as unknown as Db;
   }
 
   const { PGlite } = await import("@electric-sql/pglite");
@@ -31,7 +52,7 @@ export async function openDb(): Promise<Db> {
 }
 
 export async function migratePostgres() {
-  const url = process.env.DATABASE_URL;
+  const url = databaseUrl({ direct: true });
   if (!url) throw new Error("DATABASE_URL fehlt");
   const { default: postgres } = await import("postgres");
   const { drizzle } = await import("drizzle-orm/postgres-js");

@@ -31,6 +31,12 @@ async function StartContent() {
 
   return (
     <div className="space-y-4">
+      {!latest && (
+        <Link href="/import" className="block rounded-2xl border border-border bg-surface p-4">
+          <span className="block font-semibold">Noch keine Daten</span>
+          <span className="block text-sm text-accent">Excel-Logbuch importieren</span>
+        </Link>
+      )}
       {todays && (
         <Link
           href={`/training/${todays.id}`}
