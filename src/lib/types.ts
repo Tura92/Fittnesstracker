@@ -30,3 +30,27 @@ export type WorkoutDTO = {
 export type ExerciseOption = { id: number; name: string; primaryMuscle: string };
 
 export type PlanDayOption = { number: number; title: string };
+
+export type ExercisePlanItem = {
+  id: number;
+  dayNumber: number;
+  dayTitle: string;
+  sets: number | null;
+  reps: string | null;
+  rir: string | null;
+  rest: string | null;
+};
+
+export type ExerciseDetail = {
+  id: number;
+  name: string;
+  primaryMuscle: string;
+  secondaryMuscle1: string | null;
+  secondaryMuscle2: string | null;
+  note: string | null;
+  restSeconds: number | null;
+  archived: boolean;
+  /** Anzahl der Logbuch-Einträge; mit Einträgen wird beim Löschen nur archiviert */
+  entryCount: number;
+  planItems: ExercisePlanItem[];
+};

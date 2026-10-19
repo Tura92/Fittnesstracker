@@ -21,6 +21,8 @@ export const exercises = pgTable("exercises", {
   note: text("note"),
   /** Voreingestellte Pause nach einem Satz, in Sekunden. Leer = aus dem Plan ableiten. */
   restSeconds: integer("rest_seconds"),
+  /** Gelöschte Übungen mit Logbuch-Einträgen bleiben für die Historie erhalten, sind aber ausgeblendet */
+  archived: boolean("archived").notNull().default(false),
 });
 
 /** Ein Trainingstag im Plan, z. B. "Tag 1 – Oberkörper A". */
