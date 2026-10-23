@@ -55,9 +55,11 @@ export const invites = pgTable("invites", {
   usedAt: timestamp("used_at", { withTimezone: true }),
 });
 
+// Standardwert 1 nur für den Übergang, siehe drizzle/0006_konten_uebergang.sql; der Code setzt userId immer
 const owner = () =>
   integer("user_id")
     .notNull()
+    .default(1)
     .references(() => users.id, { onDelete: "cascade" });
 
 /** Übungen mit Haupt- (zählt 1,0) und bis zu zwei Nebenmuskelgruppen (je 0,5). */
