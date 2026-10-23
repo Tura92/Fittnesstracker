@@ -297,7 +297,10 @@ export function PushSetup() {
       if (Notification.permission === "denied") return setState("denied");
       const reg = await navigator.serviceWorker.getRegistration();
       const sub = await reg?.pushManager.getSubscription();
-      setState(Notification.permission === "granted" && sub ? "on" : "ask");
+      const on = Notification.permission === "granted" && !!sub;
+      // Abo dem angemeldeten Konto zuordnen, falls vorher jemand anderes auf dem Gerät war
+      if (on) savePushSubscription(JSON.parse(JSON.stringify(sub))).catch(() => undefined);
+      setState(on ? "on" : "ask");
     };
     check();
   }, []);

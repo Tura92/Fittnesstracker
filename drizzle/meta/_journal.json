@@ -36,6 +36,13 @@
       "when": 1792440123549,
       "tag": "0004_offline_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792748236787,
+      "tag": "0005_konten",
+      "breakpoints": true
     }
   ]
 }

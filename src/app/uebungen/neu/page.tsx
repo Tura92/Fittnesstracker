@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { ExerciseForm } from "@/components/exercise-form";
 import { getMuscleOptions, getPlanDayOptions } from "@/lib/queries";
+import { requireUser } from "@/lib/session";
 
 export default function NeueUebungPage() {
   return (
@@ -18,6 +19,7 @@ export default function NeueUebungPage() {
 }
 
 async function NewExercise() {
-  const [muscles, days] = await Promise.all([getMuscleOptions(), getPlanDayOptions()]);
+  const { id: userId } = await requireUser();
+  const [muscles, days] = await Promise.all([getMuscleOptions(userId), getPlanDayOptions(userId)]);
   return <ExerciseForm exercise={null} muscles={muscles} days={days} />;
 }

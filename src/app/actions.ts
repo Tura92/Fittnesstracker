@@ -1,78 +1,27 @@
 "use server";
 
-import { and, count, desc, eq, lt, max, ne } from "drizzle-orm";
+import { and, count, eq, max, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db";
-import { entries, exercises, loginFailures, planDays, planItems } from "@/db/schema";
-import { AUTH_COOKIE, authEnabled, isValidSession, safeEqual, sessionToken } from "@/lib/auth";
+import { entries, exercises, planDays, planItems } from "@/db/schema";
 import { ImportError, importWorkbook } from "@/lib/import-xlsx";
 import { parseDuration } from "@/lib/format";
+import { requireUserId } from "@/lib/session";
 import { intOrNull, textOrNull } from "@/lib/validate";
 
-async function requireAuth() {
-  const jar = await cookies();
-  if (!(await isValidSession(jar.get(AUTH_COOKIE)?.value))) throw new Error("Nicht angemeldet");
-}
-
-/** Nach so vielen Fehlversuchen innerhalb des Zeitfensters ist die IP gesperrt */
-const LOGIN_MAX_FAILURES = 5;
-const LOGIN_LOCK_MS = 15 * 60 * 1000;
-
-async function clientIp() {
-  const h = await headers();
-  // Auf Vercel setzt die Plattform x-forwarded-for, der erste Eintrag ist der Client
-  return h.get("x-forwarded-for")?.split(",")[0].trim() || h.get("x-real-ip") || "unbekannt";
-}
-
-export async function login(_prev: string | null, formData: FormData): Promise<string | null> {
-  if (!authEnabled()) redirect("/");
-  const db = await getDb();
-  const ip = await clientIp();
-
-  const recent = await db
-    .select({ at: loginFailures.at })
-    .from(loginFailures)
-    .where(eq(loginFailures.ip, ip))
-    .orderBy(desc(loginFailures.at))
-    .limit(LOGIN_MAX_FAILURES);
-  if (recent.length === LOGIN_MAX_FAILURES) {
-    const lockedUntil = recent[LOGIN_MAX_FAILURES - 1].at.getTime() + LOGIN_LOCK_MS;
-    if (lockedUntil > Date.now()) {
-      const minutes = Math.ceil((lockedUntil - Date.now()) / 60000);
-      return `Zu viele Fehlversuche. Bitte in ${minutes === 1 ? "1 Minute" : `${minutes} Minuten`} erneut versuchen.`;
-    }
-  }
-
-  const password = String(formData.get("password") ?? "");
-  if (!safeEqual(password, process.env.APP_PASSWORD ?? "")) {
-    await db.insert(loginFailures).values({ ip });
-    await db.delete(loginFailures).where(lt(loginFailures.at, new Date(Date.now() - 24 * 60 * 60 * 1000)));
-    const inWindow = recent.filter((r) => r.at.getTime() > Date.now() - LOGIN_LOCK_MS).length + 1;
-    return inWindow < LOGIN_MAX_FAILURES ? "Passwort stimmt nicht." : "Passwort stimmt nicht. Die Anmeldung ist jetzt für 15 Minuten gesperrt.";
-  }
-  await db.delete(loginFailures).where(eq(loginFailures.ip, ip));
-  (await cookies()).set(AUTH_COOKIE, await sessionToken(), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 365,
-  });
-  redirect("/");
-}
+// Anmeldung und Konten: siehe account-actions.ts. Alles hier gilt nur für das angemeldete Konto.
 
 export type ImportState = { ok: boolean; message: string } | null;
 
 /** Excel-Logbuch aus der App heraus importieren, z. B. in die frische Online-Datenbank. */
 export async function importExcel(_prev: ImportState, formData: FormData): Promise<ImportState> {
-  await requireAuth();
+  const userId = await requireUserId();
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) return { ok: false, message: "Bitte eine .xlsx-Datei auswählen." };
   const replace = formData.get("replace") === "on";
   try {
-    const r = await importWorkbook(await getDb(), await file.arrayBuffer(), { replace });
+    const r = await importWorkbook(await getDb(), userId, await file.arrayBuffer(), { replace });
     revalidatePath("/", "layout");
     return {
       ok: true,
@@ -100,8 +49,15 @@ export async function saveExercise(
   _prev: ExerciseFormState,
   formData: FormData,
 ): Promise<ExerciseFormState> {
-  await requireAuth();
+  const userId = await requireUserId();
   const db = await getDb();
+  if (exerciseId !== null) {
+    const [own] = await db
+      .select({ id: exercises.id })
+      .from(exercises)
+      .where(and(eq(exercises.id, exerciseId), eq(exercises.userId, userId)));
+    if (!own) return { error: "Diese Übung gibt es nicht." };
+  }
 
   const name = shortText(formData.get("name"), 100);
   if (!name) return { error: "Bitte einen Namen eingeben." };
@@ -116,6 +72,7 @@ export async function saveExercise(
     return { error: "Pause bitte als Minuten:Sekunden (z. B. 2:30) oder in Sekunden angeben." };
   }
   const values = {
+    userId,
     name,
     primaryMuscle,
     secondaryMuscle1: secondary[0] ?? null,
@@ -127,7 +84,13 @@ export async function saveExercise(
   const [clash] = await db
     .select({ id: exercises.id })
     .from(exercises)
-    .where(exerciseId === null ? eq(exercises.name, name) : and(eq(exercises.name, name), ne(exercises.id, exerciseId)));
+    .where(
+      and(
+        eq(exercises.userId, userId),
+        eq(exercises.name, name),
+        exerciseId === null ? undefined : ne(exercises.id, exerciseId),
+      ),
+    );
   if (clash) return { error: `Es gibt schon eine Übung „${name}“.` };
 
   let itemUpdates: { id: number; remove: boolean; sets: number | null; reps: string | null; rir: string | null }[];
@@ -167,7 +130,10 @@ export async function saveExercise(
       else await tx.update(planItems).set({ sets: item.sets, reps: item.reps, rir: item.rir }).where(own);
     }
     if (addDay !== null) {
-      const [day] = await tx.select({ id: planDays.id }).from(planDays).where(eq(planDays.number, addDay));
+      const [day] = await tx
+        .select({ id: planDays.id })
+        .from(planDays)
+        .where(and(eq(planDays.userId, userId), eq(planDays.number, addDay)));
       if (day) {
         const [{ last }] = await tx
           .select({ last: max(planItems.position) })
@@ -187,9 +153,14 @@ export async function saveExercise(
  * mit Einträgen nur archiviert, damit Logbuch und Auswertung vollständig bleiben.
  */
 export async function deleteExercise(exerciseId: number) {
-  await requireAuth();
+  const userId = await requireUserId();
   const db = await getDb();
   await db.transaction(async (tx) => {
+    const [own] = await tx
+      .select({ id: exercises.id })
+      .from(exercises)
+      .where(and(eq(exercises.id, exerciseId), eq(exercises.userId, userId)));
+    if (!own) return;
     await tx.delete(planItems).where(eq(planItems.exerciseId, exerciseId));
     const [{ n }] = await tx.select({ n: count() }).from(entries).where(eq(entries.exerciseId, exerciseId));
     if (n > 0) await tx.update(exercises).set({ archived: true }).where(eq(exercises.id, exerciseId));
@@ -200,9 +171,12 @@ export async function deleteExercise(exerciseId: number) {
 }
 
 export async function restoreExercise(exerciseId: number) {
-  await requireAuth();
+  const userId = await requireUserId();
   const db = await getDb();
-  await db.update(exercises).set({ archived: false }).where(eq(exercises.id, exerciseId));
+  await db
+    .update(exercises)
+    .set({ archived: false })
+    .where(and(eq(exercises.id, exerciseId), eq(exercises.userId, userId)));
   revalidatePath("/", "layout");
   redirect(`/uebungen/${exerciseId}`);
 }

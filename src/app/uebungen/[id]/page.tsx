@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { ExerciseForm } from "@/components/exercise-form";
 import { getExerciseDetail, getMuscleOptions, getPlanDayOptions } from "@/lib/queries";
+import { requireUser } from "@/lib/session";
 
 export default function UebungPage({ params }: PageProps<"/uebungen/[id]">) {
   return (
@@ -20,7 +21,12 @@ export default function UebungPage({ params }: PageProps<"/uebungen/[id]">) {
 async function EditExercise({ params }: { params: PageProps<"/uebungen/[id]">["params"] }) {
   const id = Number((await params).id);
   if (!Number.isInteger(id)) notFound();
-  const [exercise, muscles, days] = await Promise.all([getExerciseDetail(id), getMuscleOptions(), getPlanDayOptions()]);
+  const { id: userId } = await requireUser();
+  const [exercise, muscles, days] = await Promise.all([
+    getExerciseDetail(userId, id),
+    getMuscleOptions(userId),
+    getPlanDayOptions(userId),
+  ]);
   if (!exercise) notFound();
   return (
     <>

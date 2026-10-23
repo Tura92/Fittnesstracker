@@ -16,15 +16,15 @@ export function pushConfigured(): boolean {
 
 export type PushPayload = { title: string; body: string; tag?: string };
 
-/** Schickt eine Benachrichtigung an alle registrierten Geräte und räumt abgelaufene Abos auf. */
-export async function sendPushToAll(payload: PushPayload) {
+/** Schickt eine Benachrichtigung an alle Geräte eines Kontos und räumt abgelaufene Abos auf. */
+export async function sendPushToUser(userId: number, payload: PushPayload) {
   webpush.setVapidDetails(
     process.env.VAPID_SUBJECT ?? "mailto:fittnesstracker@example.com",
     process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
     process.env.VAPID_PRIVATE_KEY!,
   );
   const db = await getDb();
-  const subs = await db.select().from(pushSubscriptions);
+  const subs = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
   await Promise.all(
     subs.map(async (s) => {
       try {

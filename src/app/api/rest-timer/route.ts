@@ -2,7 +2,7 @@ import { Receiver } from "@upstash/qstash";
 import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/db";
 import { restTimers } from "@/db/schema";
-import { pushConfigured, sendPushToAll } from "@/lib/push";
+import { pushConfigured, sendPushToUser } from "@/lib/push";
 
 /** Wird von QStash aufgerufen, wenn eine Pause abgelaufen ist. */
 export async function POST(request: Request) {
@@ -24,10 +24,10 @@ export async function POST(request: Request) {
     .update(restTimers)
     .set({ firedAt: new Date() })
     .where(and(eq(restTimers.id, timerId), eq(restTimers.cancelled, false), isNull(restTimers.firedAt)))
-    .returning({ label: restTimers.label });
+    .returning({ label: restTimers.label, userId: restTimers.userId });
   if (!timer) return new Response("Timer nicht mehr aktiv");
 
-  await sendPushToAll({
+  await sendPushToUser(timer.userId, {
     title: "Pause vorbei",
     body: timer.label ? `Weiter mit ${timer.label}` : "Weiter geht's mit dem nächsten Satz",
     tag: "rest-timer",

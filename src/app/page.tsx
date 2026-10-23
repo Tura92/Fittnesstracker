@@ -5,11 +5,17 @@ import { PendingWorkouts } from "@/components/local-workouts";
 import { StartForm } from "@/components/start-form";
 import { formatDate, todayIso } from "@/lib/format";
 import { getLatestWorkout, getPlanDayOptions, getWorkoutOn } from "@/lib/queries";
+import { requireUser } from "@/lib/session";
 
 export default function Home() {
   return (
     <>
-      <h1 className="mb-4 text-2xl font-semibold">Training</h1>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold">Training</h1>
+        <Link href="/konto" className="flex h-10 items-center rounded-xl bg-accent-soft px-3 text-sm font-semibold text-accent">
+          Konto
+        </Link>
+      </div>
       <Suspense fallback={<p className="text-muted">Lädt…</p>}>
         <StartContent />
       </Suspense>
@@ -19,11 +25,12 @@ export default function Home() {
 
 async function StartContent() {
   await connection();
+  const { id: userId } = await requireUser();
   const today = todayIso();
   const [days, latest, todays] = await Promise.all([
-    getPlanDayOptions(),
-    getLatestWorkout(),
-    getWorkoutOn(today),
+    getPlanDayOptions(userId),
+    getLatestWorkout(userId),
+    getWorkoutOn(userId, today),
   ]);
 
   // Nächster Tag der Rotation nach der letzten Einheit

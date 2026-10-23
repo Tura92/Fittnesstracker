@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { MUSCLE_TARGETS } from "@/lib/analysis";
 import { formatDuration } from "@/lib/format";
 import { getExerciseList } from "@/lib/queries";
+import { requireUser } from "@/lib/session";
 import type { ExerciseDetail } from "@/lib/types";
 
 const muscleOrder = new Map(MUSCLE_TARGETS.map((m, i) => [m.muscle, i]));
@@ -32,7 +33,7 @@ export default function UebungenPage() {
 }
 
 async function ExerciseList() {
-  const all = await getExerciseList();
+  const all = await getExerciseList((await requireUser()).id);
   const active = all.filter((e) => !e.archived);
   const archived = all.filter((e) => e.archived);
   if (all.length === 0) return <p className="text-muted">Noch keine Übungen. Lege die erste mit „+ Neue Übung“ an.</p>;
