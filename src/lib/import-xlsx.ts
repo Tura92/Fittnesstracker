@@ -4,7 +4,7 @@
  * `npm run import` und vom Import in der App.
  */
 import ExcelJS from "exceljs";
-import { sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import * as t from "@/db/schema";
 
@@ -64,8 +64,13 @@ export type ImportSummary = { exercises: number; workouts: number; rows: number;
 
 export class ImportError extends Error {}
 
-/** Ersetzt alle Trainingsdaten durch den Inhalt der Datei. Ohne `replace` nur in eine leere Datenbank. */
-export async function importWorkbook(db: Db, data: ArrayBuffer, { replace = false } = {}): Promise<ImportSummary> {
+/** Ersetzt alle Trainingsdaten des Kontos durch den Inhalt der Datei. Ohne `replace` nur in ein leeres Konto. */
+export async function importWorkbook(
+  db: Db,
+  userId: number,
+  data: ArrayBuffer,
+  { replace = false } = {},
+): Promise<ImportSummary> {
   const wb = new ExcelJS.Workbook();
   try {
     await wb.xlsx.load(data);
@@ -80,7 +85,7 @@ export async function importWorkbook(db: Db, data: ArrayBuffer, { replace = fals
   // Alle Blätter vorab prüfen, damit nichts halb importiert wird
   ["Übungen", "Trainingsplan", "Logbuch", "Körpergewicht"].forEach(sheet);
 
-  const count = await db.$count(t.workouts);
+  const count = await db.$count(t.workouts, eq(t.workouts.userId, userId));
   if (count > 0 && !replace) {
     throw new ImportError(`Die Datenbank enthält schon ${count} Einheiten.`);
   }
@@ -92,7 +97,7 @@ export async function importWorkbook(db: Db, data: ArrayBuffer, { replace = fals
   // Übungen: ab Zeile 4, Spalten Übung | Haupt | Neben 1 | Neben 2 | Notiz
   const exerciseRows = new Map<string, typeof t.exercises.$inferInsert>();
   const ensureExercise = (name: string, primary = "Sonstiges") => {
-    if (!exerciseRows.has(name)) exerciseRows.set(name, { name, primaryMuscle: primary });
+    if (!exerciseRows.has(name)) exerciseRows.set(name, { userId, name, primaryMuscle: primary });
     return name;
   };
   const ex = sheet("Übungen");
@@ -102,6 +107,7 @@ export async function importWorkbook(db: Db, data: ArrayBuffer, { replace = fals
     const primary = str(row.getCell(2).value);
     if (!name || !primary || exerciseRows.has(name)) continue;
     exerciseRows.set(name, {
+      userId,
       name,
       primaryMuscle: primary,
       secondaryMuscle1: str(row.getCell(3).value),
@@ -209,9 +215,11 @@ export async function importWorkbook(db: Db, data: ArrayBuffer, { replace = fals
 
   const workoutList = [...workoutRows.values()];
   await db.transaction(async (tx) => {
-    await tx.execute(
-      sql`truncate sets, entries, workouts, plan_items, plan_days, exercises, body_weights restart identity cascade`,
-    );
+    // Nur die Daten dieses Kontos; Einträge, Sätze und Planzeilen hängen per Kaskade dran
+    await tx.delete(t.workouts).where(eq(t.workouts.userId, userId));
+    await tx.delete(t.planDays).where(eq(t.planDays.userId, userId));
+    await tx.delete(t.exercises).where(eq(t.exercises.userId, userId));
+    await tx.delete(t.bodyWeights).where(eq(t.bodyWeights.userId, userId));
 
     const exerciseIds = new Map<string, number>();
     if (exerciseRows.size > 0) {
@@ -224,7 +232,7 @@ export async function importWorkbook(db: Db, data: ArrayBuffer, { replace = fals
 
     const dayIds = new Map<number, number>();
     if (planDayRows.length > 0) {
-      const rows = await tx.insert(t.planDays).values(planDayRows).returning({ id: t.planDays.id, number: t.planDays.number });
+      const rows = await tx.insert(t.planDays).values(planDayRows.map((d) => ({ ...d, userId }))).returning({ id: t.planDays.id, number: t.planDays.number });
       for (const r of rows) dayIds.set(r.number, r.id);
     }
     if (planItemRows.length > 0) {
@@ -241,7 +249,7 @@ export async function importWorkbook(db: Db, data: ArrayBuffer, { replace = fals
       // Reihenfolge der zurückgegebenen Zeilen ist nicht garantiert, daher Zuordnung über den Schlüssel
       const rows = await tx
         .insert(t.workouts)
-        .values(workoutList.map(({ date, block, dayNumber }) => ({ date, block, dayNumber })))
+        .values(workoutList.map(({ date, block, dayNumber }) => ({ userId, date, block, dayNumber })))
         .returning({ id: t.workouts.id, date: t.workouts.date, block: t.workouts.block, dayNumber: t.workouts.dayNumber });
       const workoutIds = new Map(rows.map((r) => [`${r.date}|${r.block}|${r.dayNumber}`, r.id]));
 
@@ -268,7 +276,7 @@ export async function importWorkbook(db: Db, data: ArrayBuffer, { replace = fals
       if (setValues.length > 0) await tx.insert(t.sets).values(setValues);
     }
 
-    if (weightRows.size > 0) await tx.insert(t.bodyWeights).values([...weightRows.values()]);
+    if (weightRows.size > 0) await tx.insert(t.bodyWeights).values([...weightRows.values()].map((w) => ({ ...w, userId })));
   });
 
   return { exercises: exerciseRows.size, workouts: workoutList.length, rows: imported, weights: weightRows.size };

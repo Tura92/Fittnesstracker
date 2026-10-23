@@ -8,24 +8,30 @@ import type { EntryDTO, ExerciseDetail, ExerciseOption, ExercisePlanItem, Offlin
 
 export const DEFAULT_REST_SECONDS = 120;
 
-export async function getExerciseOptions(): Promise<ExerciseOption[]> {
+/** Alle Abfragen gelten nur für das übergebene Konto, siehe requireUser() in src/lib/session.ts */
+
+/** Plantag zur Einheit: gleiche Nummer im Plan desselben Kontos */
+const ownPlanDay = and(eq(planDays.number, workouts.dayNumber), eq(planDays.userId, workouts.userId));
+
+export async function getExerciseOptions(userId: number): Promise<ExerciseOption[]> {
   const db = await getDb();
   return db
     .select({ id: exercises.id, name: exercises.name, primaryMuscle: exercises.primaryMuscle })
     .from(exercises)
-    .where(eq(exercises.archived, false))
+    .where(and(eq(exercises.userId, userId), eq(exercises.archived, false)))
     .orderBy(asc(exercises.name));
 }
 
-export async function getPlanDayOptions(): Promise<PlanDayOption[]> {
+export async function getPlanDayOptions(userId: number): Promise<PlanDayOption[]> {
   const db = await getDb();
   return db
     .select({ number: planDays.number, title: planDays.title })
     .from(planDays)
+    .where(eq(planDays.userId, userId))
     .orderBy(asc(planDays.number));
 }
 
-export async function getPlan() {
+export async function getPlan(userId: number) {
   const db = await getDb();
   const rows = await db
     .select({
@@ -45,6 +51,7 @@ export async function getPlan() {
     .from(planDays)
     .leftJoin(planItems, eq(planItems.planDayId, planDays.id))
     .leftJoin(exercises, eq(exercises.id, planItems.exerciseId))
+    .where(eq(planDays.userId, userId))
     .orderBy(asc(planDays.number), asc(planItems.position));
 
   const days: {
@@ -82,23 +89,24 @@ export async function getPlan() {
   return days;
 }
 
-export async function getLatestWorkout() {
+export async function getLatestWorkout(userId: number) {
   const db = await getDb();
   const [w] = await db
     .select({ id: workouts.id, date: workouts.date, block: workouts.block, dayNumber: workouts.dayNumber })
     .from(workouts)
+    .where(eq(workouts.userId, userId))
     .orderBy(desc(workouts.date), desc(workouts.id))
     .limit(1);
   return w ?? null;
 }
 
-export async function getWorkoutOn(date: string) {
+export async function getWorkoutOn(userId: number, date: string) {
   const db = await getDb();
   const [w] = await db
     .select({ id: workouts.uid, dayNumber: workouts.dayNumber, title: planDays.title })
     .from(workouts)
-    .leftJoin(planDays, eq(planDays.number, workouts.dayNumber))
-    .where(eq(workouts.date, date))
+    .leftJoin(planDays, ownPlanDay)
+    .where(and(eq(workouts.userId, userId), eq(workouts.date, date)))
     .orderBy(desc(workouts.id))
     .limit(1);
   return w ?? null;
@@ -122,7 +130,7 @@ async function setsByEntry(entryIds: number[]): Promise<Map<number, SetDTO[]>> {
 }
 
 /** Eine Einheit samt Vorgaben aus dem Plan und den Werten vom letzten Mal, über ihre UUID */
-export async function getWorkout(uid: string): Promise<WorkoutDTO | null> {
+export async function getWorkout(userId: number, uid: string): Promise<WorkoutDTO | null> {
   const db = await getDb();
   const [w] = await db
     .select({
@@ -136,8 +144,8 @@ export async function getWorkout(uid: string): Promise<WorkoutDTO | null> {
       planDayId: planDays.id,
     })
     .from(workouts)
-    .leftJoin(planDays, eq(planDays.number, workouts.dayNumber))
-    .where(eq(workouts.uid, uid));
+    .leftJoin(planDays, ownPlanDay)
+    .where(and(eq(workouts.userId, userId), eq(workouts.uid, uid)));
   if (!w) return null;
 
   const entryRows = await db
@@ -181,7 +189,14 @@ export async function getWorkout(uid: string): Promise<WorkoutDTO | null> {
       .select({ entryId: entries.id, exerciseId: entries.exerciseId, setCount: entries.setCount, date: workouts.date })
       .from(entries)
       .innerJoin(workouts, eq(workouts.id, entries.workoutId))
-      .where(and(inArray(entries.exerciseId, exerciseIds), lte(workouts.date, w.date), ne(workouts.id, w.id)))
+      .where(
+        and(
+          eq(workouts.userId, userId),
+          inArray(entries.exerciseId, exerciseIds),
+          lte(workouts.date, w.date),
+          ne(workouts.id, w.id),
+        ),
+      )
       .orderBy(desc(workouts.date), desc(workouts.id));
     const prevSets = await setsByEntry(rows.map((r) => r.entryId));
     for (const r of rows) {
@@ -219,7 +234,7 @@ export async function getWorkout(uid: string): Promise<WorkoutDTO | null> {
 }
 
 /** Für den Logbuch-Überblick: alle Einheiten, neueste zuerst. */
-export async function getLog() {
+export async function getLog(userId: number) {
   const db = await getDb();
   const ws = await db
     .select({
@@ -231,7 +246,8 @@ export async function getLog() {
       dayTitle: planDays.title,
     })
     .from(workouts)
-    .leftJoin(planDays, eq(planDays.number, workouts.dayNumber))
+    .leftJoin(planDays, ownPlanDay)
+    .where(eq(workouts.userId, userId))
     .orderBy(desc(workouts.date), desc(workouts.id));
 
   const es = await db
@@ -242,7 +258,9 @@ export async function getLog() {
       setCount: entries.setCount,
     })
     .from(entries)
+    .innerJoin(workouts, eq(workouts.id, entries.workoutId))
     .innerJoin(exercises, eq(exercises.id, entries.exerciseId))
+    .where(eq(workouts.userId, userId))
     .orderBy(asc(entries.position), asc(entries.id));
   const allSets = await setsByEntry(es.map((e) => e.id));
 
@@ -255,7 +273,7 @@ export async function getLog() {
 }
 
 /** Alle Einträge mit Muskelgruppen und Sätzen, als Grundlage der Auswertung */
-export async function getAnalysisEntries(): Promise<AnalysisEntry[]> {
+export async function getAnalysisEntries(userId: number): Promise<AnalysisEntry[]> {
   const db = await getDb();
   const rows = await db
     .select({
@@ -273,12 +291,13 @@ export async function getAnalysisEntries(): Promise<AnalysisEntry[]> {
     .from(entries)
     .innerJoin(workouts, eq(workouts.id, entries.workoutId))
     .innerJoin(exercises, eq(exercises.id, entries.exerciseId))
+    .where(eq(workouts.userId, userId))
     .orderBy(asc(workouts.date), asc(entries.position));
   const allSets = await setsByEntry(rows.map((r) => r.id));
   return rows.map(({ id, ...r }) => ({ ...r, sets: allSets.get(id) ?? [] }));
 }
 
-async function planItemsByExercise(exerciseIds?: number[]): Promise<Map<number, ExercisePlanItem[]>> {
+async function planItemsByExercise(userId: number, exerciseIds?: number[]): Promise<Map<number, ExercisePlanItem[]>> {
   const db = await getDb();
   const rows = await db
     .select({
@@ -293,7 +312,7 @@ async function planItemsByExercise(exerciseIds?: number[]): Promise<Map<number, 
     })
     .from(planItems)
     .innerJoin(planDays, eq(planDays.id, planItems.planDayId))
-    .where(exerciseIds ? inArray(planItems.exerciseId, exerciseIds) : undefined)
+    .where(and(eq(planDays.userId, userId), exerciseIds ? inArray(planItems.exerciseId, exerciseIds) : undefined))
     .orderBy(asc(planDays.number), asc(planItems.position));
   const result = new Map<number, ExercisePlanItem[]>();
   for (const { exerciseId, ...item } of rows) {
@@ -304,37 +323,41 @@ async function planItemsByExercise(exerciseIds?: number[]): Promise<Map<number, 
   return result;
 }
 
-async function entryCounts(exerciseIds?: number[]): Promise<Map<number, number>> {
+async function entryCounts(userId: number, exerciseIds?: number[]): Promise<Map<number, number>> {
   const db = await getDb();
   const rows = await db
     .select({ exerciseId: entries.exerciseId, n: count() })
     .from(entries)
-    .where(exerciseIds ? inArray(entries.exerciseId, exerciseIds) : undefined)
+    .innerJoin(exercises, eq(exercises.id, entries.exerciseId))
+    .where(and(eq(exercises.userId, userId), exerciseIds ? inArray(entries.exerciseId, exerciseIds) : undefined))
     .groupBy(entries.exerciseId);
   return new Map(rows.map((r) => [r.exerciseId, r.n]));
 }
 
 /** Alle Übungen samt Planverwendung, für die Übungsübersicht */
-export async function getExerciseList(): Promise<ExerciseDetail[]> {
+export async function getExerciseList(userId: number): Promise<ExerciseDetail[]> {
   const db = await getDb();
   const [rows, items, counts] = await Promise.all([
-    db.select().from(exercises).orderBy(asc(exercises.name)),
-    planItemsByExercise(),
-    entryCounts(),
+    db.select().from(exercises).where(eq(exercises.userId, userId)).orderBy(asc(exercises.name)),
+    planItemsByExercise(userId),
+    entryCounts(userId),
   ]);
   return rows.map((e) => ({ ...e, entryCount: counts.get(e.id) ?? 0, planItems: items.get(e.id) ?? [] }));
 }
 
-export async function getExerciseDetail(id: number): Promise<ExerciseDetail | null> {
+export async function getExerciseDetail(userId: number, id: number): Promise<ExerciseDetail | null> {
   const db = await getDb();
-  const [e] = await db.select().from(exercises).where(eq(exercises.id, id));
+  const [e] = await db
+    .select()
+    .from(exercises)
+    .where(and(eq(exercises.userId, userId), eq(exercises.id, id)));
   if (!e) return null;
-  const [items, counts] = await Promise.all([planItemsByExercise([id]), entryCounts([id])]);
+  const [items, counts] = await Promise.all([planItemsByExercise(userId, [id]), entryCounts(userId, [id])]);
   return { ...e, entryCount: counts.get(id) ?? 0, planItems: items.get(id) ?? [] };
 }
 
 /** Alle bekannten Muskelgruppen: feste Reihenfolge aus der Auswertung plus eigene */
-export async function getMuscleOptions(): Promise<string[]> {
+export async function getMuscleOptions(userId: number): Promise<string[]> {
   const db = await getDb();
   const rows = await db
     .select({
@@ -342,7 +365,8 @@ export async function getMuscleOptions(): Promise<string[]> {
       secondary1: exercises.secondaryMuscle1,
       secondary2: exercises.secondaryMuscle2,
     })
-    .from(exercises);
+    .from(exercises)
+    .where(eq(exercises.userId, userId));
   const known = MUSCLE_TARGETS.map((m) => m.muscle);
   const extra = new Set<string>();
   for (const r of rows) {
@@ -352,7 +376,7 @@ export async function getMuscleOptions(): Promise<string[]> {
 }
 
 /** Alles, was das Training ohne Netz braucht: Übungen, Plan und die letzten Ausführungen */
-export async function getOfflineSnapshot(): Promise<OfflineSnapshot> {
+export async function getOfflineSnapshot(userId: number): Promise<OfflineSnapshot> {
   const db = await getDb();
   const [exerciseRows, plan, latest, recent] = await Promise.all([
     db
@@ -363,7 +387,7 @@ export async function getOfflineSnapshot(): Promise<OfflineSnapshot> {
         restSeconds: exercises.restSeconds,
       })
       .from(exercises)
-      .where(eq(exercises.archived, false))
+      .where(and(eq(exercises.userId, userId), eq(exercises.archived, false)))
       .orderBy(asc(exercises.name)),
     db
       .select({
@@ -377,8 +401,9 @@ export async function getOfflineSnapshot(): Promise<OfflineSnapshot> {
       })
       .from(planDays)
       .leftJoin(planItems, eq(planItems.planDayId, planDays.id))
+      .where(eq(planDays.userId, userId))
       .orderBy(asc(planDays.number), asc(planItems.position)),
-    getLatestWorkout(),
+    getLatestWorkout(userId),
     // Je Übung die zwei letzten Ausführungen: eine davon kann die gerade laufende Einheit sein
     db
       .select({
@@ -390,7 +415,8 @@ export async function getOfflineSnapshot(): Promise<OfflineSnapshot> {
         rank: sql<number>`row_number() over (partition by ${entries.exerciseId} order by ${workouts.date} desc, ${workouts.id} desc)`.as("rank"),
       })
       .from(entries)
-      .innerJoin(workouts, eq(workouts.id, entries.workoutId)),
+      .innerJoin(workouts, eq(workouts.id, entries.workoutId))
+      .where(eq(workouts.userId, userId)),
   ]);
 
   const planDaysOut: OfflineSnapshot["planDays"] = [];

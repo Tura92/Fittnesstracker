@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { getPlan } from "@/lib/queries";
+import { requireUser } from "@/lib/session";
 
 export default function PlanPage() {
   return (
@@ -20,7 +21,7 @@ export default function PlanPage() {
 }
 
 async function PlanDays() {
-  const days = await getPlan();
+  const days = await getPlan((await requireUser()).id);
   if (days.length === 0) return <p className="text-muted">Noch kein Plan importiert.</p>;
   return (
     <div className="space-y-4">

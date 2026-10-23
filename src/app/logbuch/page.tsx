@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { PendingWorkouts } from "@/components/local-workouts";
 import { formatDate, formatSets } from "@/lib/format";
 import { getLog } from "@/lib/queries";
+import { requireUser } from "@/lib/session";
 
 export default function LogbuchPage() {
   return (
@@ -19,7 +20,7 @@ export default function LogbuchPage() {
 }
 
 async function LogList() {
-  const log = await getLog();
+  const log = await getLog((await requireUser()).id);
   if (log.length === 0) {
     return <p className="text-muted">Noch keine Einheiten. Starte dein erstes Training im Reiter Training.</p>;
   }

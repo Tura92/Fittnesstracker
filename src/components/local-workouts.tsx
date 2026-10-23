@@ -3,12 +3,15 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { formatDate } from "@/lib/format";
-import { listWorkouts, startSync, subscribeStatus } from "@/lib/local-store";
+import { listWorkouts, setLocalUser, startSync, subscribeStatus } from "@/lib/local-store";
 import type { WorkoutDTO } from "@/lib/types";
 
-/** Startet den Abgleich, sobald irgendeine Seite der App offen ist */
-export function SyncStarter() {
-  useEffect(() => startSync(), []);
+/** Startet den Abgleich für das angemeldete Konto, sobald irgendeine Seite der App offen ist */
+export function SyncStarter({ userId }: { userId: number }) {
+  useEffect(() => {
+    setLocalUser(userId);
+    startSync();
+  }, [userId]);
   return null;
 }
 

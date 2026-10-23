@@ -66,4 +66,6 @@ export type OfflineSnapshot = {
   /** Letzte Ausführungen je Übung (neueste zuerst), für die Vorbelegung */
   last: Record<number, { workoutId: string; date: string; sets: SetValues[]; setCount: number | null }[]>;
   latest: { date: string; block: number; dayNumber: number | null } | null;
+  /** Konto, dem der Abzug gehört */
+  userId?: number;
 };

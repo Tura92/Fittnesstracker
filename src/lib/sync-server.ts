@@ -82,7 +82,11 @@ export function parseSyncPayload(body: unknown): SyncPayload {
   };
 }
 
-export async function applySync(payload: SyncPayload) {
+/**
+ * Alles gilt nur für das angemeldete Konto: Fremde Einheiten, Einträge und Sätze mit
+ * derselben UUID werden weder überschrieben noch gelöscht, fremde Übungen nicht verwendet.
+ */
+export async function applySync(userId: number, payload: SyncPayload) {
   const db = await getDb();
 
   // Einträge zu Übungen, die es nicht mehr gibt, würden den ganzen Abgleich blockieren
@@ -90,21 +94,29 @@ export async function applySync(payload: SyncPayload) {
   const known = new Set(
     exerciseIds.length === 0
       ? []
-      : (await db.select({ id: exercises.id }).from(exercises).where(inArray(exercises.id, exerciseIds))).map(
-          (r) => r.id,
-        ),
+      : (
+          await db
+            .select({ id: exercises.id })
+            .from(exercises)
+            .where(and(eq(exercises.userId, userId), inArray(exercises.id, exerciseIds)))
+        ).map((r) => r.id),
   );
 
   for (const w of payload.workouts) {
     await db.transaction(async (tx) => {
-      const [{ id: workoutId }] = await tx
+      const [saved] = await tx
         .insert(workouts)
-        .values({ uid: w.id, date: w.date, block: w.block, dayNumber: w.dayNumber, note: w.note })
+        .values({ userId, uid: w.id, date: w.date, block: w.block, dayNumber: w.dayNumber, note: w.note })
         .onConflictDoUpdate({
           target: workouts.uid,
           set: { date: w.date, block: w.block, dayNumber: w.dayNumber, note: w.note },
+          setWhere: eq(workouts.userId, userId),
         })
         .returning({ id: workouts.id });
+      // UUID gehört zu einem anderen Konto
+      if (!saved) return;
+      const workoutId = saved.id;
+      const ownWorkouts = tx.select({ id: workouts.id }).from(workouts).where(eq(workouts.userId, userId));
 
       if (w.deletedEntries.length > 0) {
         await tx.delete(entries).where(and(eq(entries.workoutId, workoutId), inArray(entries.uid, w.deletedEntries)));
@@ -142,19 +154,22 @@ export async function applySync(payload: SyncPayload) {
             setCount: sql`excluded.set_count`,
             note: sql`excluded.note`,
           },
+          setWhere: inArray(entries.workoutId, ownWorkouts),
         })
         .returning({ id: entries.id, uid: entries.uid });
       const entryIdByUid = new Map(savedEntries.map((e) => [e.uid, e.id]));
 
-      const setRows = keep.flatMap((e) =>
-        e.sets.map((s, position) => ({
-          uid: s.id,
-          entryId: entryIdByUid.get(e.id)!,
-          position,
-          reps: s.reps,
-          weight: s.weight,
-        })),
-      );
+      const setRows = keep
+        .filter((e) => entryIdByUid.has(e.id))
+        .flatMap((e) =>
+          e.sets.map((s, position) => ({
+            uid: s.id,
+            entryId: entryIdByUid.get(e.id)!,
+            position,
+            reps: s.reps,
+            weight: s.weight,
+          })),
+        );
       if (setRows.length > 0) {
         await tx
           .insert(sets)
@@ -167,15 +182,24 @@ export async function applySync(payload: SyncPayload) {
               reps: sql`excluded.reps`,
               weight: sql`excluded.weight`,
             },
+            setWhere: inArray(
+              sets.entryId,
+              tx.select({ id: entries.id }).from(entries).where(inArray(entries.workoutId, ownWorkouts)),
+            ),
           });
       }
     });
   }
 
   if (payload.deletedWorkouts.length > 0) {
-    await db.delete(workouts).where(inArray(workouts.uid, payload.deletedWorkouts));
+    await db
+      .delete(workouts)
+      .where(and(eq(workouts.userId, userId), inArray(workouts.uid, payload.deletedWorkouts)));
   }
   for (const r of payload.exerciseRest) {
-    await db.update(exercises).set({ restSeconds: r.seconds }).where(eq(exercises.id, r.exerciseId));
+    await db
+      .update(exercises)
+      .set({ restSeconds: r.seconds })
+      .where(and(eq(exercises.userId, userId), eq(exercises.id, r.exerciseId)));
   }
 }

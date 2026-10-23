@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { BottomNav } from "@/components/bottom-nav";
 import { SyncStarter } from "@/components/local-workouts";
 import { RestTimerProvider } from "@/components/rest-timer";
+import { currentUser } from "@/lib/session";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -40,9 +41,17 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <Suspense>
             <BottomNav />
           </Suspense>
-          <SyncStarter />
+          <Suspense>
+            <SessionSync />
+          </Suspense>
         </RestTimerProvider>
       </body>
     </html>
   );
+}
+
+/** Ohne Anmeldung kein Abgleich; sonst weiß der Speicher im Browser, wessen Daten er hält */
+async function SessionSync() {
+  const user = await currentUser();
+  return user ? <SyncStarter userId={user.id} /> : null;
 }

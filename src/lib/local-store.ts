@@ -6,6 +6,10 @@
  * geschickt; der Server führt sie mit dem Stand anderer Geräte zusammen. Entfernte
  * Übungen und Sätze werden dafür ausdrücklich als gelöscht mitgeschickt. Dazu kommt ein Abzug von Übungen, Plan und letzten Werten (Snapshot),
  * damit auch ein neues Training offline starten kann.
+ *
+ * Jedes Konto hat auf dem Gerät eine eigene Datenbank. Nach einem Kontowechsel sieht man
+ * so nie die Einheiten des anderen, und dessen noch nicht abgeglichene Änderungen bleiben
+ * liegen, bis er sich wieder anmeldet.
  */
 import type { OfflineSnapshot, WorkoutDTO } from "./types";
 
@@ -28,17 +32,101 @@ export type SyncStatus = {
   lastSyncedAt: number | null;
 };
 
-const DB_NAME = "fittnesstracker";
+/** Konto 1 übernimmt die Datenbank aus der Zeit vor den Konten */
+const dbName = (userId: number) => (userId === 1 ? "fittnesstracker" : `fittnesstracker-u${userId}`);
+const USER_KEY = "ft-user";
+/** Wie in public/sw.js: gespeicherte Seiten enthalten die Daten des Kontos, das sie geladen hat */
+const PAGE_CACHE = "pages-v1";
 const SYNC_DELAY_MS = 1500;
 const RETRY_MS = 30_000;
 /** Abgeglichene Einheiten bleiben so lange lokal, danach reicht der Server */
 const KEEP_CLEAN_DAYS = 21;
 
+// ---------- Konto ----------
+
+function readStoredUser(): number | null {
+  try {
+    const n = Number(localStorage.getItem(USER_KEY));
+    return Number.isInteger(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+let userId: number | null = typeof window === "undefined" ? null : readStoredUser();
+let userKnown: Promise<number>;
+let resolveUser: ((id: number) => void) | null = null;
+
+function waitForUser() {
+  userKnown = new Promise((resolve) => {
+    resolveUser = resolve;
+  });
+}
+if (userId === null) waitForUser();
+else userKnown = Promise.resolve(userId);
+
+async function clearPageCache() {
+  if (typeof caches !== "undefined") await caches.delete(PAGE_CACHE).catch(() => undefined);
+}
+
+function closeDb() {
+  void dbPromise?.then((db) => db.close()).catch(() => undefined);
+  dbPromise = null;
+}
+
+/**
+ * Wer angemeldet ist, kommt vom Server (Layout, Anmeldung, Abzug). Wechselt das Konto,
+ * gilt ab sofort dessen Datenbank, und die gespeicherten Seiten des vorigen werden verworfen.
+ */
+export function setLocalUser(id: number) {
+  if (id === userId) return;
+  const switched = userId !== null;
+  userId = id;
+  try {
+    localStorage.setItem(USER_KEY, String(id));
+  } catch {
+    // ohne localStorage kommt das Konto beim nächsten Laden wieder vom Server
+  }
+  closeDb();
+  if (resolveUser) {
+    resolveUser(id);
+    resolveUser = null;
+  } else {
+    userKnown = Promise.resolve(id);
+  }
+  if (switched) {
+    void clearPageCache();
+    setStatus({ pending: 0, error: null, lastSyncedAt: null });
+    void refreshPending().then(() => syncNow());
+  }
+}
+
+/** Nach Anmeldung: gespeicherte Seiten könnten von einem anderen Konto stammen, also neu laden lassen */
+export async function signedIn(id: number) {
+  await clearPageCache();
+  setLocalUser(id);
+}
+
+/** Beim Abmelden: Gerät gehört keinem Konto mehr, gespeicherte Seiten weg. Die Daten bleiben für die nächste Anmeldung. */
+export async function forgetLocalUser() {
+  userId = null;
+  try {
+    localStorage.removeItem(USER_KEY);
+  } catch {
+    // egal
+  }
+  closeDb();
+  waitForUser();
+  await clearPageCache();
+}
+
 let dbPromise: Promise<IDBDatabase> | null = null;
 
-function openDb(): Promise<IDBDatabase> {
+async function openDb(): Promise<IDBDatabase> {
+  const id = await userKnown;
+  if (id !== userId) return openDb();
   dbPromise ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
+    const req = indexedDB.open(dbName(id), 1);
     req.onupgradeneeded = () => {
       req.result.createObjectStore("workouts", { keyPath: "id" });
       req.result.createObjectStore("kv");
@@ -198,6 +286,11 @@ export async function refreshSnapshot(): Promise<OfflineSnapshot | undefined> {
     const res = await fetch("/api/offline", { cache: "no-store" });
     if (!res.ok) return getSnapshot();
     const snapshot = (await res.json()) as OfflineSnapshot;
+    // Inzwischen ist ein anderes Konto angemeldet: dessen Speicher nehmen statt hier zu mischen
+    if (snapshot.userId !== undefined && snapshot.userId !== userId) {
+      setLocalUser(snapshot.userId);
+      return refreshSnapshot();
+    }
     // Noch nicht abgeglichene Pausenzeiten nicht vom älteren Serverstand überschreiben lassen
     const rest = (await kvGet<Record<number, number>>("rest")) ?? {};
     for (const e of snapshot.exercises) if (rest[e.id] !== undefined) e.restSeconds = rest[e.id];
@@ -244,6 +337,7 @@ async function doSync() {
     await refreshPending();
     return;
   }
+  const owner = await userKnown;
   const records = (await listWorkouts()).filter((r) => r.dirty);
   const deleted = (await kvGet<string[]>("deleted")) ?? [];
   const rest = (await kvGet<Record<number, number>>("rest")) ?? {};
@@ -258,6 +352,7 @@ async function doSync() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        userId: owner,
         workouts: records.map((r) => ({
           ...r.doc,
           deletedEntries: r.deletedEntries ?? [],
@@ -268,7 +363,10 @@ async function doSync() {
       }),
     });
     if (res.status === 401) throw new Error("Bitte neu anmelden, dann wird abgeglichen.");
+    if (res.status === 409) throw new Error("Bitte mit dem Konto anmelden, mit dem trainiert wurde.");
     if (!res.ok) throw new Error(`Abgleich fehlgeschlagen (${res.status}).`);
+    // Während des Sendens wurde das Konto gewechselt; die Antwort betrifft dessen Speicher nicht
+    if (owner !== userId) return;
 
     // Nur als abgeglichen markieren, was sich seit dem Senden nicht mehr geändert hat
     const { os, tx } = await store("workouts", "readwrite");

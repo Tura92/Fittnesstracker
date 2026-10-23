@@ -1,31 +1,14 @@
 /**
- * Einfacher Passwortschutz für eine Ein-Personen-App: Ist APP_PASSWORD gesetzt,
- * braucht jede Anfrage ein Cookie mit einem daraus abgeleiteten Token.
- * Ohne APP_PASSWORD (lokale Entwicklung) ist die App offen.
+ * Anmeldung mit Nutzerkonten: Im Cookie steht ein zufälliges Token, die Datenbank kennt
+ * nur dessen Hash und das zugehörige Konto (siehe src/lib/session.ts). Der Proxy prüft
+ * nur die Form des Cookies, damit Seiten ohne Anmeldung gar nicht erst laden; ob die
+ * Sitzung gültig ist, entscheidet jeder Datenzugriff selbst.
  */
 export const AUTH_COOKIE = "ft_session";
 
-export function authEnabled(): boolean {
-  return !!process.env.APP_PASSWORD;
-}
-
-export async function sessionToken(): Promise<string> {
-  const password = process.env.APP_PASSWORD ?? "";
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(password),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("fittnesstracker-session-v1"));
-  return Array.from(new Uint8Array(sig), (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-export async function isValidSession(cookieValue: string | undefined): Promise<boolean> {
-  if (!authEnabled()) return true;
-  if (!cookieValue) return false;
-  return safeEqual(cookieValue, await sessionToken());
+/** 32 Zufallsbytes, base64url. Alte Cookies aus der Zeit des gemeinsamen Passworts passen nicht. */
+export function looksLikeSessionToken(value: string | undefined): value is string {
+  return !!value && /^[A-Za-z0-9_-]{43}$/.test(value);
 }
 
 export function safeEqual(a: string, b: string): boolean {
