@@ -43,9 +43,12 @@ export function makeEntry(
 ): EntryDTO | null {
   const exercise = snapshot.exercises.find((e) => e.id === exerciseId);
   if (!exercise) return null;
-  const item = snapshot.planDays
-    .find((d) => d.number === workout.dayNumber)
-    ?.items.find((i) => i.exerciseId === exerciseId);
+  // Vorgabe aus dem Plantag der Einheit, sonst vom ersten anderen Plantag mit dieser Übung
+  const inDay = (d: OfflineSnapshot["planDays"][number]) => d.items.find((i) => i.exerciseId === exerciseId);
+  const ownDay = snapshot.planDays.find((d) => d.number === workout.dayNumber);
+  const item =
+    (ownDay && inDay(ownDay)) ??
+    [...snapshot.planDays].sort((a, b) => a.number - b.number).map(inDay).find((i) => i !== undefined);
   const target = item ? { sets: item.sets, reps: item.reps, rir: item.rir, rest: item.rest } : null;
   return {
     id: newId(),
