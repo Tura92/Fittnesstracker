@@ -105,7 +105,10 @@ export function WorkoutEditor({ initial, snapshot }: { initial: WorkoutDTO; snap
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
             <SyncLabel status={sync} />
-            <HeaderTimer />
+            {/* Platz für die Pausen-Pille ist immer reserviert, damit der Kopf nicht springt */}
+            <div className="h-7">
+              <HeaderTimer />
+            </div>
           </div>
         </div>
         <button type="button" onClick={() => setEditingMeta((v) => !v)} className="text-sm text-accent">
@@ -202,19 +205,31 @@ export function WorkoutEditor({ initial, snapshot }: { initial: WorkoutDTO; snap
   );
 }
 
-/** Speicherstand in einfachen Worten; gespeichert ist es immer, die Frage ist nur, ob schon auf dem Server */
+const SYNC_TEXTS = ["✓ Gespeichert", "Gleicht ab…", "Offline gespeichert", "Gespeichert, Abgleich folgt"];
+
+/**
+ * Speicherstand in einfachen Worten; gespeichert ist es immer, die Frage ist nur, ob schon auf dem Server.
+ * Alle Texte liegen unsichtbar übereinander, damit die Breite fest bleibt und der Kopf beim Statuswechsel nicht springt.
+ */
 export function SyncLabel({ status }: { status: SyncStatus }) {
   const text =
     status.pending === 0
-      ? "✓ Gespeichert"
+      ? SYNC_TEXTS[0]
       : status.syncing
-        ? "Gleicht ab…"
+        ? SYNC_TEXTS[1]
         : !status.online
-          ? "Offline gespeichert"
-          : "Gespeichert, Abgleich folgt";
+          ? SYNC_TEXTS[2]
+          : SYNC_TEXTS[3];
   return (
-    <span className="mt-1 text-xs text-muted" aria-live="polite">
-      {text}
+    <span className="mt-1 grid whitespace-nowrap text-right text-xs text-muted">
+      {SYNC_TEXTS.map((t) => (
+        <span key={t} className={`col-start-1 row-start-1 ${t === text ? "" : "invisible"}`} aria-hidden>
+          {t}
+        </span>
+      ))}
+      <span className="sr-only" aria-live="polite">
+        {text}
+      </span>
     </span>
   );
 }
