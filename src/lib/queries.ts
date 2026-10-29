@@ -167,10 +167,13 @@ export async function getWorkout(userId: number, uid: string): Promise<WorkoutDT
 
   const exerciseIds = entryRows.map((e) => e.exerciseId);
 
+  // Vorgabe aus dem Plantag der Einheit; nachträglich hinzugefügte Übungen, die dort nicht
+  // stehen, bekommen die Vorgabe vom ersten anderen Plantag, in dem sie vorkommen
   const targets = new Map<number, EntryDTO["target"]>();
-  if (w.planDayId !== null && exerciseIds.length > 0) {
+  if (exerciseIds.length > 0) {
     const rows = await db
       .select({
+        planDayId: planItems.planDayId,
         exerciseId: planItems.exerciseId,
         sets: planItems.sets,
         reps: planItems.reps,
@@ -178,8 +181,12 @@ export async function getWorkout(userId: number, uid: string): Promise<WorkoutDT
         rest: planItems.rest,
       })
       .from(planItems)
-      .where(and(eq(planItems.planDayId, w.planDayId), inArray(planItems.exerciseId, exerciseIds)));
-    for (const { exerciseId, ...t } of rows) targets.set(exerciseId, t);
+      .innerJoin(planDays, eq(planDays.id, planItems.planDayId))
+      .where(and(eq(planDays.userId, userId), inArray(planItems.exerciseId, exerciseIds)))
+      .orderBy(asc(planDays.number), asc(planItems.position));
+    for (const { planDayId, exerciseId, ...t } of rows) {
+      if (planDayId === w.planDayId || !targets.has(exerciseId)) targets.set(exerciseId, t);
+    }
   }
 
   // Letzte frühere Ausführung je Übung, für die Vorbelegung
