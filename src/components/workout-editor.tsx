@@ -15,7 +15,7 @@ import {
 } from "@/lib/local-store";
 import type { EntryDTO, ExerciseOption, OfflineSnapshot, WorkoutDTO } from "@/lib/types";
 import { makeEntry, newId } from "@/lib/workout-local";
-import { HeaderTimer, PushSetup, RestTimerButton, RestTimerControls } from "./rest-timer";
+import { PushSetup, RestTimerButton, RestTimerControls } from "./rest-timer";
 import { Stepper } from "./stepper";
 
 /** Höchstens so lange wartet "Training abschließen" auf den Abgleich, bevor es weitergeht */
@@ -103,12 +103,8 @@ export function WorkoutEditor({ initial, snapshot }: { initial: WorkoutDTO; snap
               {formatDate(workout.date, { year: true })} · Block {workout.block} · {totalSets} Sätze
             </p>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-1">
+          <div className="shrink-0">
             <SyncLabel status={sync} />
-            {/* Platz für die Pausen-Pille ist immer reserviert, damit der Kopf nicht springt */}
-            <div className="h-7">
-              <HeaderTimer />
-            </div>
           </div>
         </div>
         <button type="button" onClick={() => setEditingMeta((v) => !v)} className="text-sm text-accent">

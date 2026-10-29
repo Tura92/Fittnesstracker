@@ -248,31 +248,6 @@ export function RestTimerControls({ exerciseId, label }: { exerciseId: number; l
   );
 }
 
-/**
- * Kleine Anzeige im Kopf des Trainings, damit die laufende Pause sichtbar bleibt,
- * wenn ihre Übung aus dem Bild gescrollt ist. Tippen springt zur Übung.
- */
-export function HeaderTimer() {
-  const { timer, remaining } = useRestTimer();
-  if (!timer) return null;
-  const jump = () => {
-    if (timer.exerciseId === null) return;
-    document.getElementById(`exercise-${timer.exerciseId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-  return (
-    <button
-      type="button"
-      onClick={jump}
-      aria-label={`Pause ${timer.label}: ${timer.done ? "vorbei" : `noch ${formatDuration(remaining)}`}. Zur Übung springen`}
-      className={`h-7 rounded-full px-2.5 text-xs font-semibold tabular-nums ${
-        timer.done ? "animate-pulse bg-accent text-white dark:text-zinc-950" : "bg-accent-soft text-accent"
-      }`}
-    >
-      {timer.done ? "Pause vorbei" : `⏱ ${formatDuration(remaining)}`}
-    </button>
-  );
-}
-
 function urlBase64ToUint8Array(base64: string) {
   const padded = (base64 + "=".repeat((4 - (base64.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/");
   return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
