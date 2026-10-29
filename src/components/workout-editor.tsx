@@ -56,7 +56,7 @@ export function WorkoutEditor({ initial, snapshot }: { initial: WorkoutDTO; snap
     setEntries((list) => list.filter((e) => e.id !== entry.id));
   };
 
-  const changeEntryMeta = (entryId: string, patch: { rirLast?: number | null; note?: string }) =>
+  const changeEntryMeta = (entryId: string, patch: { note?: string }) =>
     patchEntry(entryId, (e) => ({ ...e, ...patch }));
 
   const changeMeta = (patch: Partial<Pick<WorkoutDTO, "date" | "block" | "dayNumber" | "note">>) =>
@@ -247,7 +247,7 @@ function EntryCard({
   onAddSets: (values: SetValues[]) => Promise<void>;
   onRemoveSet: (setId: string) => void;
   onRemove: () => void;
-  onChangeMeta: (patch: { rirLast?: number | null; note?: string }) => void;
+  onChangeMeta: (patch: { note?: string }) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [showNote, setShowNote] = useState(!!entry.note);
@@ -365,27 +365,11 @@ function EntryCard({
       </div>
       <RestTimerControls exerciseId={entry.exerciseId} label={entry.exerciseName} />
 
-      {entry.sets.length > 0 && (
-        <div className="mt-3 flex items-center gap-3 text-sm">
-          <label className="flex items-center gap-2">
-            <span className="text-muted">RIR letzter Satz</span>
-            <input
-              inputMode="decimal"
-              value={entry.rirLast ?? ""}
-              placeholder="–"
-              onChange={(e) => {
-                const n = parseNumber(e.target.value);
-                if (e.target.value.trim() === "" || (n !== null && n >= 0 && n <= 10))
-                  onChangeMeta({ rirLast: n });
-              }}
-              className="h-9 w-12 rounded-lg border border-border bg-transparent text-center"
-            />
-          </label>
-          {!showNote && (
-            <button type="button" onClick={() => setShowNote(true)} className="text-accent">
-              Notiz
-            </button>
-          )}
+      {entry.sets.length > 0 && !showNote && (
+        <div className="mt-3 text-sm">
+          <button type="button" onClick={() => setShowNote(true)} className="h-9 text-accent">
+            Notiz
+          </button>
         </div>
       )}
       {showNote && (
