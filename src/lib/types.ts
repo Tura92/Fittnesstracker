@@ -30,6 +30,9 @@ export type WorkoutDTO = {
 
 export type ExerciseOption = { id: number; name: string; primaryMuscle: string };
 
+/** Standardvorgabe einer Übung, falls der Plantag der Einheit keine eigene hat */
+export type ExerciseDefaults = { defaultSets: number | null; defaultReps: string | null; defaultRir: string | null };
+
 export type PlanDayOption = { number: number; title: string };
 
 export type ExercisePlanItem = {
@@ -42,7 +45,7 @@ export type ExercisePlanItem = {
   rest: string | null;
 };
 
-export type ExerciseDetail = {
+export type ExerciseDetail = ExerciseDefaults & {
   id: number;
   name: string;
   primaryMuscle: string;
@@ -59,7 +62,8 @@ export type ExerciseDetail = {
 /** Was das Handy für das Training ohne Netz braucht; wird bei Empfang aktualisiert */
 export type OfflineSnapshot = {
   fetchedAt: string;
-  exercises: (ExerciseOption & { restSeconds: number | null })[];
+  /** Standardvorgaben fehlen in Abzügen von Versionen davor */
+  exercises: (ExerciseOption & { restSeconds: number | null } & Partial<ExerciseDefaults>)[];
   planDays: (PlanDayOption & {
     items: { exerciseId: number; sets: number | null; reps: string | null; rir: string | null; rest: string | null }[];
   })[];
