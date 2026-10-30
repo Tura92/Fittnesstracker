@@ -75,6 +75,10 @@ export const exercises = pgTable(
     note: text("note"),
     /** Voreingestellte Pause nach einem Satz, in Sekunden. Leer = aus dem Plan ableiten. */
     restSeconds: integer("rest_seconds"),
+    /** Standardvorgabe der Übung, gilt im Training, wenn der Plantag der Einheit selbst keine Vorgabe hat */
+    defaultSets: integer("default_sets"),
+    defaultReps: text("default_reps"),
+    defaultRir: text("default_rir"),
     /** Gelöschte Übungen mit Logbuch-Einträgen bleiben für die Historie erhalten, sind aber ausgeblendet */
     archived: boolean("archived").notNull().default(false),
   },

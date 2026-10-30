@@ -71,6 +71,12 @@ export async function saveExercise(
   if (rest !== null && (Number.isNaN(rest) || rest < 5 || rest > 3600)) {
     return { error: "Pause bitte als Minuten:Sekunden (z. B. 2:30) oder in Sekunden angeben." };
   }
+  let defaultSets: number | null;
+  try {
+    defaultSets = intOrNull(formData.get("default-sets"), 1, 20);
+  } catch {
+    return { error: "Sätze bitte als ganze Zahl zwischen 1 und 20 angeben." };
+  }
   const values = {
     userId,
     name,
@@ -78,6 +84,9 @@ export async function saveExercise(
     secondaryMuscle1: secondary[0] ?? null,
     secondaryMuscle2: secondary[1] ?? null,
     restSeconds: rest,
+    defaultSets,
+    defaultReps: shortText(formData.get("default-reps"), 20),
+    defaultRir: shortText(formData.get("default-rir"), 10),
     note: textOrNull(formData.get("note")),
   };
 

@@ -77,6 +77,12 @@ function ExerciseRow({ e }: { e: ExerciseDetail }) {
   const plan = e.planItems
     .map((p) => `Tag ${p.dayNumber}${p.sets && p.reps ? `: ${p.sets} × ${p.reps}` : ""}`)
     .join(" · ");
+  const standard = [
+    e.defaultSets && e.defaultReps ? `${e.defaultSets} × ${e.defaultReps}` : e.defaultReps,
+    e.defaultRir && `RIR ${e.defaultRir}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <li>
       <Link href={`/uebungen/${e.id}`} className="block px-4 py-3">
@@ -90,6 +96,7 @@ function ExerciseRow({ e }: { e: ExerciseDetail }) {
           {secondary && <>+ {secondary} · </>}
           {plan || "nicht im Plan"}
         </p>
+        {standard && <p className="text-sm text-muted">Standard: {standard}</p>}
       </Link>
     </li>
   );

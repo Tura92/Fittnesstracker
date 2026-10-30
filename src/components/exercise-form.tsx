@@ -8,7 +8,10 @@ import type { ExerciseDetail, PlanDayOption } from "@/lib/types";
 const input = "h-11 w-full rounded-xl border border-border bg-background px-3";
 const label = "mb-1 block text-sm text-muted";
 
-/** Anlegen und Bearbeiten einer Übung samt ihrer Vorgaben in den Plantagen */
+/** Vorschlag für neue Übungen und neue Plantag-Zeilen */
+const SUGGESTED = { sets: 3, reps: "8–12", rir: "1–2" };
+
+/** Anlegen und Bearbeiten einer Übung samt Standardvorgabe und ihren Vorgaben in den Plantagen */
 export function ExerciseForm({
   exercise,
   muscles,
@@ -23,6 +26,9 @@ export function ExerciseForm({
   const [addDay, setAddDay] = useState("");
   const usedDays = new Set(exercise?.planItems.map((p) => p.dayNumber));
   const freeDays = days.filter((d) => !usedDays.has(d.number));
+  const defaults = exercise
+    ? { sets: exercise.defaultSets, reps: exercise.defaultReps, rir: exercise.defaultRir }
+    : SUGGESTED;
 
   const onDelete = () => {
     if (!exercise) return;
@@ -99,6 +105,16 @@ export function ExerciseForm({
       </section>
 
       <section className="space-y-3 rounded-2xl border border-border bg-surface p-4">
+        <div>
+          <h2 className="font-semibold">Standardvorgabe</h2>
+          <p className="text-sm text-muted">
+            Gilt im Training, wenn die Übung nicht im Plantag der Einheit steht. Leer lassen für keine Vorgabe.
+          </p>
+        </div>
+        <TargetInputs prefix="default" sets={defaults.sets} reps={defaults.reps} rir={defaults.rir} />
+      </section>
+
+      <section className="space-y-3 rounded-2xl border border-border bg-surface p-4">
         <h2 className="font-semibold">Im Trainingsplan</h2>
         {exercise?.planItems.length === 0 && <p className="text-sm text-muted">Noch in keinem Plantag.</p>}
         {exercise?.planItems.map((p) => (
@@ -128,7 +144,14 @@ export function ExerciseForm({
                 ))}
               </select>
             </label>
-            {addDay && <TargetInputs prefix="new" sets={3} reps="8–12" rir="1–2" />}
+            {addDay && (
+              <TargetInputs
+                prefix="new"
+                sets={defaults.sets ?? SUGGESTED.sets}
+                reps={defaults.reps ?? SUGGESTED.reps}
+                rir={defaults.rir ?? SUGGESTED.rir}
+              />
+            )}
           </div>
         )}
       </section>

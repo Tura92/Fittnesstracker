@@ -4,6 +4,7 @@ import { getDb } from "@/db";
 import { entries, exercises, planDays, planItems, sets, workouts } from "@/db/schema";
 import { formatDuration, parseRestSeconds } from "./format";
 import { MUSCLE_TARGETS, type AnalysisEntry } from "./analysis";
+import { defaultTarget } from "./workout-local";
 import type { EntryDTO, ExerciseDetail, ExerciseOption, ExercisePlanItem, OfflineSnapshot, PlanDayOption, SetDTO, WorkoutDTO } from "./types";
 
 export const DEFAULT_REST_SECONDS = 120;
@@ -156,6 +157,9 @@ export async function getWorkout(userId: number, uid: string): Promise<WorkoutDT
       exerciseName: exercises.name,
       primaryMuscle: exercises.primaryMuscle,
       exerciseRest: exercises.restSeconds,
+      defaultSets: exercises.defaultSets,
+      defaultReps: exercises.defaultReps,
+      defaultRir: exercises.defaultRir,
       rirLast: entries.rirLast,
       setCount: entries.setCount,
       note: entries.note,
@@ -167,13 +171,11 @@ export async function getWorkout(userId: number, uid: string): Promise<WorkoutDT
 
   const exerciseIds = entryRows.map((e) => e.exerciseId);
 
-  // Vorgabe aus dem Plantag der Einheit; nachträglich hinzugefügte Übungen, die dort nicht
-  // stehen, bekommen die Vorgabe vom ersten anderen Plantag, in dem sie vorkommen
+  // Vorgabe aus dem Plantag der Einheit; Übungen, die dort nicht stehen, bekommen den Standard der Übung
   const targets = new Map<number, EntryDTO["target"]>();
-  if (exerciseIds.length > 0) {
+  if (exerciseIds.length > 0 && w.planDayId !== null) {
     const rows = await db
       .select({
-        planDayId: planItems.planDayId,
         exerciseId: planItems.exerciseId,
         sets: planItems.sets,
         reps: planItems.reps,
@@ -181,12 +183,9 @@ export async function getWorkout(userId: number, uid: string): Promise<WorkoutDT
         rest: planItems.rest,
       })
       .from(planItems)
-      .innerJoin(planDays, eq(planDays.id, planItems.planDayId))
-      .where(and(eq(planDays.userId, userId), inArray(planItems.exerciseId, exerciseIds)))
-      .orderBy(asc(planDays.number), asc(planItems.position));
-    for (const { planDayId, exerciseId, ...t } of rows) {
-      if (planDayId === w.planDayId || !targets.has(exerciseId)) targets.set(exerciseId, t);
-    }
+      .where(and(eq(planItems.planDayId, w.planDayId), inArray(planItems.exerciseId, exerciseIds)))
+      .orderBy(asc(planItems.position));
+    for (const { exerciseId, ...t } of rows) if (!targets.has(exerciseId)) targets.set(exerciseId, t);
   }
 
   // Letzte frühere Ausführung je Übung, für die Vorbelegung
@@ -226,8 +225,8 @@ export async function getWorkout(userId: number, uid: string): Promise<WorkoutDT
     dayNumber: w.dayNumber,
     dayTitle: w.dayTitle,
     note: w.note,
-    entries: entryRows.map(({ exerciseRest, id, uid, ...e }) => {
-      const target = targets.get(e.exerciseId) ?? null;
+    entries: entryRows.map(({ exerciseRest, defaultSets, defaultReps, defaultRir, id, uid, ...e }) => {
+      const target = targets.get(e.exerciseId) ?? defaultTarget({ defaultSets, defaultReps, defaultRir });
       return {
         ...e,
         id: uid,
@@ -392,6 +391,9 @@ export async function getOfflineSnapshot(userId: number): Promise<OfflineSnapsho
         name: exercises.name,
         primaryMuscle: exercises.primaryMuscle,
         restSeconds: exercises.restSeconds,
+        defaultSets: exercises.defaultSets,
+        defaultReps: exercises.defaultReps,
+        defaultRir: exercises.defaultRir,
       })
       .from(exercises)
       .where(and(eq(exercises.userId, userId), eq(exercises.archived, false)))

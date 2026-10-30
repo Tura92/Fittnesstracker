@@ -50,6 +50,13 @@
       "when": 1792748237787,
       "tag": "0006_konten_uebergang",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793342595522,
+      "tag": "0007_uebung_standardvorgaben",
+      "breakpoints": true
     }
   ]
 }

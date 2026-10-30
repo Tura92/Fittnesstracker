@@ -146,6 +146,12 @@ export async function importWorkbook(
       rest: str(row.getCell(5).value),
     });
   }
+  // Standardvorgabe jeder Übung: die aus dem ersten Plantag, in dem sie vorkommt
+  for (const item of [...planItemRows].sort((x, y) => x.day - y.day || x.position - y.position)) {
+    const e = exerciseRows.get(item.exercise)!;
+    if (e.defaultSets !== undefined) continue;
+    Object.assign(e, { defaultSets: item.sets, defaultReps: item.reps, defaultRir: item.rir });
+  }
 
   // Logbuch: ab Zeile 5. A Datum, B Block, C Einheit, D Übung,
   // E–P sechs Paare (Wdh., kg), Q RIR letzter Satz, R Sätze, V Notiz

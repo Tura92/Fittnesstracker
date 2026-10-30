@@ -4,7 +4,7 @@
  * und aus noch nicht abgeglichenen Einheiten auf dem Handy.
  */
 import { parseRestSeconds, type SetValues } from "./format";
-import type { EntryDTO, OfflineSnapshot, WorkoutDTO } from "./types";
+import type { EntryDTO, ExerciseDefaults, OfflineSnapshot, WorkoutDTO } from "./types";
 
 const DEFAULT_REST_SECONDS = 120;
 
@@ -35,6 +35,14 @@ function previousFor(
   return best ? { date: best.date, sets: best.sets, setCount: best.setCount } : null;
 }
 
+/** Zielvorgabe aus dem Standard der Übung; null, wenn dort nichts eingetragen ist */
+export function defaultTarget(e: Partial<ExerciseDefaults>): EntryDTO["target"] {
+  const sets = e.defaultSets ?? null;
+  const reps = e.defaultReps ?? null;
+  const rir = e.defaultRir ?? null;
+  return sets === null && reps === null && rir === null ? null : { sets, reps, rir, rest: null };
+}
+
 export function makeEntry(
   exerciseId: number,
   workout: Pick<WorkoutDTO, "id" | "date" | "dayNumber">,
@@ -43,13 +51,16 @@ export function makeEntry(
 ): EntryDTO | null {
   const exercise = snapshot.exercises.find((e) => e.id === exerciseId);
   if (!exercise) return null;
-  // Vorgabe aus dem Plantag der Einheit, sonst vom ersten anderen Plantag mit dieser Übung
+  // Vorgabe aus dem Plantag der Einheit, sonst der Standard der Übung. Ein Abzug von vor den
+  // Standardvorgaben kennt sie noch nicht; dann wie früher die Vorgabe vom ersten Plantag mit der Übung.
   const inDay = (d: OfflineSnapshot["planDays"][number]) => d.items.find((i) => i.exerciseId === exerciseId);
   const ownDay = snapshot.planDays.find((d) => d.number === workout.dayNumber);
   const item =
     (ownDay && inDay(ownDay)) ??
-    [...snapshot.planDays].sort((a, b) => a.number - b.number).map(inDay).find((i) => i !== undefined);
-  const target = item ? { sets: item.sets, reps: item.reps, rir: item.rir, rest: item.rest } : null;
+    (exercise.defaultSets === undefined
+      ? [...snapshot.planDays].sort((a, b) => a.number - b.number).map(inDay).find((i) => i !== undefined)
+      : undefined);
+  const target = item ? { sets: item.sets, reps: item.reps, rir: item.rir, rest: item.rest } : defaultTarget(exercise);
   return {
     id: newId(),
     exerciseId,
