@@ -40,7 +40,7 @@ Das Training läuft auf dem Handy: Eine Einheit entsteht im Browser-Speicher (In
 
 ## Pausen-Timer
 
-Jede Übung hat einen Pause-Button. Die Dauer kommt aus dem Plan (bei Bereichen wie „2–3 min“ das obere Ende) und lässt sich während der Pause mit ±15 s anpassen und als Voreinstellung der Übung merken. Der Countdown läuft im Button selbst.
+Jede Übung hat einen Pause-Button. Die Dauer kommt aus dem Plan (bei Bereichen wie „2–3 min“ das obere Ende) und lässt sich während der Pause mit ±15 s anpassen und als Voreinstellung der Übung merken. Der Countdown läuft im Button selbst. „+ Satz“ startet die Pause der Übung automatisch mit; ein laufender Timer wird dabei neu gestartet.
 
 Solange die App offen ist, piept und vibriert sie beim Ablauf. Damit der Alarm auch bei gesperrtem Display kommt, schickt der Server eine Push-Benachrichtigung. Den Zeitpunkt dafür hält [Upstash QStash](https://upstash.com/docs/qstash) (kostenlose Stufe reicht): Beim Start des Timers wird dort eine verzögerte Nachricht an `/api/rest-timer` eingeplant, die beim Stoppen oder Ändern wieder gelöscht wird.
 

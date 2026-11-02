@@ -15,7 +15,7 @@ import {
 } from "@/lib/local-store";
 import type { EntryDTO, ExerciseOption, OfflineSnapshot, WorkoutDTO } from "@/lib/types";
 import { makeEntry, newId } from "@/lib/workout-local";
-import { PushSetup, RestTimerButton, RestTimerControls } from "./rest-timer";
+import { PushSetup, RestTimerButton, RestTimerControls, useRestTimer } from "./rest-timer";
 import { Stepper } from "./stepper";
 
 /** Höchstens so lange wartet "Training abschließen" auf den Abgleich, bevor es weitergeht */
@@ -246,6 +246,7 @@ function EntryCard({
   onChangeMeta: (patch: { note?: string }) => void;
 }) {
   const [adding, setAdding] = useState(false);
+  const { start: startRest, restFor } = useRestTimer();
   const [showNote, setShowNote] = useState(!!entry.note);
   const { target, previous } = entry;
 
@@ -261,6 +262,13 @@ function EntryCard({
     setAdding(true);
     await onAddSets(values);
     setAdding(false);
+  };
+
+  // "+ Satz" startet gleich die Pause dieser Übung. Noch im Tipp, damit iOS den Ton erlaubt;
+  // ein laufender Timer wird dabei ersetzt. Ohne Netz läuft er nur in der App, der Satz ist trotzdem lokal gespeichert.
+  const addSet = () => {
+    startRest(restFor(entry.exerciseId, entry.restSeconds), entry.exerciseName, entry.exerciseId);
+    void add([nextSetValues()]);
   };
 
   const targetText = target
@@ -342,7 +350,7 @@ function EntryCard({
         <button
           type="button"
           disabled={adding}
-          onClick={() => add([nextSetValues()])}
+          onClick={addSet}
           className="h-11 flex-1 rounded-xl bg-accent-soft font-semibold text-accent disabled:opacity-60"
         >
           + Satz
