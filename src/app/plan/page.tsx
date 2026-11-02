@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { getPlan } from "@/lib/queries";
+import { PlanDay } from "@/components/plan-day";
+import { getExerciseOptions, getPlan } from "@/lib/queries";
 import { requireUser } from "@/lib/session";
 
 export default function PlanPage() {
@@ -12,7 +13,7 @@ export default function PlanPage() {
           Übungen bearbeiten
         </Link>
       </div>
-      <p className="mb-4 text-sm text-muted">Übungen sind austauschbar. Sätze, Wiederholungen und RIR bleiben.</p>
+      <p className="mb-4 text-sm text-muted">Übungen sind austauschbar. Platz, Sätze, Wiederholungen und RIR bleiben. Neue Einheiten übernehmen die Reihenfolge.</p>
       <Suspense fallback={<p className="text-muted">Lädt…</p>}>
         <PlanDays />
       </Suspense>
@@ -21,34 +22,13 @@ export default function PlanPage() {
 }
 
 async function PlanDays() {
-  const days = await getPlan((await requireUser()).id);
+  const userId = (await requireUser()).id;
+  const [days, exercises] = await Promise.all([getPlan(userId), getExerciseOptions(userId)]);
   if (days.length === 0) return <p className="text-muted">Noch kein Plan importiert.</p>;
   return (
     <div className="space-y-4">
       {days.map((day) => (
-        <section key={day.number} className="rounded-2xl border border-border bg-surface p-4">
-          <h2 className="mb-2 font-semibold">
-            Tag {day.number} – {day.title}
-          </h2>
-          <ul className="divide-y divide-border">
-            {day.items.map((item) => (
-              <li key={item.id} className="py-2">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="font-medium">{item.exercise}</span>
-                  <span className="shrink-0 text-sm tabular-nums">
-                    {item.sets} × {item.reps}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-3 text-sm text-muted">
-                  <span className="min-w-0 truncate">{item.muscles.join(", ")}</span>
-                  <span className="shrink-0">
-                    {[item.rir && `RIR ${item.rir}`, item.rest].filter(Boolean).join(" · ")}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <PlanDay key={day.number} number={day.number} title={day.title} items={day.items} exercises={exercises} />
       ))}
     </div>
   );
