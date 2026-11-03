@@ -60,5 +60,25 @@ export async function migratePostgres() {
   const { migrate } = await import("drizzle-orm/postgres-js/migrator");
   const client = postgres(url, { max: 1 });
   await migrate(drizzle(client), { migrationsFolder });
+  await enableRlsEverywhere(client);
   await client.end();
+}
+
+/**
+ * Supabase macht das Schema public über seine REST-API (PostgREST) erreichbar. Ohne RLS
+ * könnte jeder mit dem öffentlichen anon-Key dort alle Tabellen lesen und ändern.
+ * Die App verbindet als Tabellenbesitzer (postgres) und ist von RLS nicht betroffen.
+ * Ohne Policies sperrt RLS darum nur die REST-API aus. Neue Tabellen bekommen RLS über
+ * `.enableRLS()` im Schema; dieses Netz fängt eine vergessene Tabelle trotzdem ab.
+ */
+async function enableRlsEverywhere(client: import("postgres").Sql) {
+  const tables = await client<{ name: string }[]>`
+    select c.relname as name from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind in ('r', 'p') and not c.relrowsecurity
+      and pg_get_userbyid(c.relowner) = current_user`;
+  for (const { name } of tables) {
+    await client.unsafe(`alter table public."${name.replaceAll('"', '""')}" enable row level security`);
+    console.log(`RLS für public.${name} nachträglich aktiviert (.enableRLS() im Schema ergänzen).`);
+  }
 }

@@ -30,7 +30,7 @@ export const users = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("users_name_idx").on(sql`lower(${t.name})`)],
-);
+).enableRLS();
 
 /** Angemeldete Geräte. Im Cookie steht ein Zufallstoken, hier nur dessen Hash. */
 export const sessions = pgTable("sessions", {
@@ -40,7 +40,7 @@ export const sessions = pgTable("sessions", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}).enableRLS();
 
 /** Einladungslinks für neue Konten, je einmal nutzbar und befristet */
 export const invites = pgTable("invites", {
@@ -53,7 +53,7 @@ export const invites = pgTable("invites", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   usedBy: integer("used_by").references(() => users.id, { onDelete: "set null" }),
   usedAt: timestamp("used_at", { withTimezone: true }),
-});
+}).enableRLS();
 
 // Standardwert 1 nur für den Übergang, siehe drizzle/0006_konten_uebergang.sql; der Code setzt userId immer
 const owner = () =>
@@ -83,7 +83,7 @@ export const exercises = pgTable(
     archived: boolean("archived").notNull().default(false),
   },
   (t) => [uniqueIndex("exercises_user_name_idx").on(t.userId, t.name)],
-);
+).enableRLS();
 
 /** Ein Trainingstag im Plan, z. B. "Tag 1 – Oberkörper A". */
 export const planDays = pgTable(
@@ -95,7 +95,7 @@ export const planDays = pgTable(
     title: text("title").notNull(),
   },
   (t) => [uniqueIndex("plan_days_user_number_idx").on(t.userId, t.number)],
-);
+).enableRLS();
 
 /** Eine Übung im Plan eines Tages mit Zielvorgaben. */
 export const planItems = pgTable("plan_items", {
@@ -111,7 +111,7 @@ export const planItems = pgTable("plan_items", {
   reps: text("reps"),
   rir: text("rir"),
   rest: text("rest"),
-});
+}).enableRLS();
 
 /** Eine Trainingseinheit an einem Datum (Excel: Datum + Block + Einheit). */
 export const workouts = pgTable(
@@ -128,7 +128,7 @@ export const workouts = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("workouts_user_date_idx").on(t.userId, t.date)],
-);
+).enableRLS();
 
 /** Eine Übung innerhalb einer Einheit (Excel: eine Zeile im Logbuch). */
 export const entries = pgTable("entries", {
@@ -146,7 +146,7 @@ export const entries = pgTable("entries", {
   /** Nur Satzzahl bekannt, ohne Wdh./Gewicht (so ist Block 1 erfasst). */
   setCount: integer("set_count"),
   note: text("note"),
-});
+}).enableRLS();
 
 /** Ein einzelner Satz. Gewicht leer = Körpergewicht bzw. unbekannt. */
 export const sets = pgTable("sets", {
@@ -159,7 +159,7 @@ export const sets = pgTable("sets", {
   position: integer("position").notNull(),
   reps: integer("reps"),
   weight: real("weight"),
-});
+}).enableRLS();
 
 export const bodyWeights = pgTable(
   "body_weights",
@@ -171,7 +171,7 @@ export const bodyWeights = pgTable(
     note: text("note"),
   },
   (t) => [uniqueIndex("body_weights_user_date_idx").on(t.userId, t.date)],
-);
+).enableRLS();
 
 /** Push-Abos der Geräte, auf denen Benachrichtigungen erlaubt wurden. */
 export const pushSubscriptions = pgTable("push_subscriptions", {
@@ -182,7 +182,7 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   p256dh: text("p256dh").notNull(),
   auth: text("auth").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}).enableRLS();
 
 /** Laufende bzw. vergangene Pausen-Timer, für den Push bei Ablauf. */
 export const restTimers = pgTable("rest_timers", {
@@ -194,7 +194,7 @@ export const restTimers = pgTable("rest_timers", {
   messageId: text("message_id"),
   cancelled: boolean("cancelled").notNull().default(false),
   firedAt: timestamp("fired_at", { withTimezone: true }),
-});
+}).enableRLS();
 
 /** Fehlgeschlagene Anmeldungen je IP-Adresse, für die Sperre gegen Durchprobieren */
 export const loginFailures = pgTable(
@@ -205,4 +205,4 @@ export const loginFailures = pgTable(
     at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("login_failures_ip_at_idx").on(t.ip, t.at)],
-);
+).enableRLS();
