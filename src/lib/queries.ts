@@ -39,6 +39,7 @@ export async function getPlan(userId: number) {
       dayNumber: planDays.number,
       dayTitle: planDays.title,
       itemId: planItems.id,
+      exerciseId: planItems.exerciseId,
       sets: planItems.sets,
       reps: planItems.reps,
       rir: planItems.rir,
@@ -53,13 +54,14 @@ export async function getPlan(userId: number) {
     .leftJoin(planItems, eq(planItems.planDayId, planDays.id))
     .leftJoin(exercises, eq(exercises.id, planItems.exerciseId))
     .where(eq(planDays.userId, userId))
-    .orderBy(asc(planDays.number), asc(planItems.position));
+    .orderBy(asc(planDays.number), asc(planItems.position), asc(planItems.id));
 
   const days: {
     number: number;
     title: string;
     items: {
       id: number;
+      exerciseId: number;
       exercise: string;
       sets: number | null;
       reps: string | null;
@@ -74,9 +76,10 @@ export async function getPlan(userId: number) {
       day = { number: r.dayNumber, title: r.dayTitle, items: [] };
       days.push(day);
     }
-    if (r.itemId !== null && r.exercise !== null) {
+    if (r.itemId !== null && r.exerciseId !== null && r.exercise !== null) {
       day.items.push({
         id: r.itemId,
+        exerciseId: r.exerciseId,
         exercise: r.exercise,
         sets: r.sets,
         reps: r.reps,
@@ -411,7 +414,7 @@ export async function getOfflineSnapshot(userId: number): Promise<OfflineSnapsho
       .from(planDays)
       .leftJoin(planItems, eq(planItems.planDayId, planDays.id))
       .where(eq(planDays.userId, userId))
-      .orderBy(asc(planDays.number), asc(planItems.position)),
+      .orderBy(asc(planDays.number), asc(planItems.position), asc(planItems.id)),
     getLatestWorkout(userId),
     // Je Übung die zwei letzten Ausführungen: eine davon kann die gerade laufende Einheit sein
     db
